@@ -71,6 +71,47 @@ async function parsePayload(response) {
   }
 }
 
+function extractBackendError(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  // Shape A (nested): { error: { message, code, requiredAction, ... } }
+  if (payload.error && typeof payload.error === "object") {
+    return payload.error;
+  }
+
+  // Shape B (flat): { error: "message", code, details: { requiredAction, ... } }
+  const details = payload.details && typeof payload.details === "object" ? payload.details : null;
+  const message =
+    (typeof payload.error === "string" ? payload.error : null) ||
+    (typeof payload.message === "string" ? payload.message : null) ||
+    null;
+
+  const code = typeof payload.code === "string" ? payload.code : null;
+  const requiredAction =
+    (typeof payload.requiredAction === "string" ? payload.requiredAction : null) ||
+    (typeof details?.requiredAction === "string" ? details.requiredAction : null) ||
+    null;
+  const missingFields = Array.isArray(payload.missingFields)
+    ? payload.missingFields
+    : Array.isArray(details?.missingFields)
+      ? details.missingFields
+      : [];
+  const sessionId =
+    (typeof payload.sessionId === "string" ? payload.sessionId : null) ||
+    (typeof details?.sessionId === "string" ? details.sessionId : null) ||
+    null;
+
+  return {
+    message,
+    code,
+    requiredAction,
+    missingFields,
+    sessionId,
+  };
+}
+
 export async function request(path, options = {}) {
   const {
     method = "GET",
@@ -97,19 +138,15 @@ export async function request(path, options = {}) {
 
   const payload = await parsePayload(response);
   if (!response.ok) {
-    const backendError =
-      payload && typeof payload === "object" && payload.error && typeof payload.error === "object"
-        ? payload.error
-        : null;
+    const backendError = extractBackendError(payload);
     const message =
       backendError?.message ||
-      (payload && typeof payload === "object" && payload.message) ||
       response.statusText ||
       "Request failed";
     throw new ApiError(message, response.status, payload, {
       code: backendError?.code,
       requiredAction: backendError?.requiredAction,
-      missingFields: Array.isArray(backendError?.missingFields) ? backendError?.missingFields : [],
+      missingFields: backendError?.missingFields ?? [],
       sessionId: backendError?.sessionId,
     });
   }

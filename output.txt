@@ -1,0 +1,11 @@
+DEFAULT 2026-04-29T01:32:02.707860Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z5", "res":{…}, "responseTime":349.2278579995036, "time":1.777426322708E12}
+INFO 2026-04-29T01:32:02.823239Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.53 KiB] [httpRequest.latency: 112 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CA388c3bc92bca0cd86cc33b2495874254
+DEFAULT 2026-04-29T01:32:02.826839Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1z6", "time":1.777426322827E12}
+DEFAULT 2026-04-29T01:32:02.936991Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z6", "res":{…}, "responseTime":109.95625600218773, "time":1.777426322937E12}
+INFO 2026-04-29T01:32:05.087388Z [httpRequest.requestMethod: OPTIONS] [httpRequest.status: 204] [httpRequest.responseSize: 360 B] [httpRequest.latency: 3 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CA19384f7bc1e978d51e016fe95928246a
+DEFAULT 2026-04-29T01:32:05.092006Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1z7", "time":1.777426325092E12}
+DEFAULT 2026-04-29T01:32:05.092977Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z7", "res":{…}, "responseTime":0.8739180006086826, "time":1.777426325093E12}
+INFO 2026-04-29T01:32:05.270255Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 5.37 KiB] [httpRequest.latency: 153 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CA19384f7bc1e978d51e016fe95928246a
+DEFAULT 2026-04-29T01:32:05.273721Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1z8", "time":1.777426325274E12}
+DEFAULT 2026-04-29T01:32:05.425897Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z8", "res":{…}, "responseTime":151.47419799864292, "time":1.777426325425E12}
+INFO 2026-04-29T01:32:07.344331Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 50.81 KiB] [httpRequest.latency: 499 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus

@@ -91,7 +91,19 @@ export async function signInWithFirebaseCredentials(email, password) {
   }
 
   const result = await signInWithEmailAndPassword(auth, email, password);
-  const token = await result.user.getIdToken();
+  const token = await result.user.getIdToken(true);
+  setStoredToken(token);
+  return token;
+}
+
+export async function refreshStoredFirebaseToken(force = false) {
+  const auth = getFirebaseAuth();
+  const user = auth?.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    return "";
+  }
+
+  const token = await user.getIdToken(Boolean(force));
   setStoredToken(token);
   return token;
 }

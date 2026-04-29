@@ -43,6 +43,9 @@ Completed:
    - Auth failures are handled with warnings and backend error mapping, but no in-app login route exists.
 3. Contract tests are not yet automated in this repo.
    - Integration verification is still manual unless backend test harness is added.
+4. Confirmed backend persistence/read-model mismatch for lead save.
+   - `PATCH /support/sessions/:id/lead` returns `200`, but subsequent list/detail reads may not return persisted lead identity consistently.
+   - See `docs/backend_lead_persistence_handoff.md` for required backend fix criteria and validation steps.
 
 ## 3. Updated To-Do List (Next Steps)
 

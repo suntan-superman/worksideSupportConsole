@@ -1,6 +1,10 @@
 import "./style.css";
 import {
+  assignSupportSession,
   closeSupportSession,
+  createSupportDepartment,
+  createSupportUser,
+  deleteSupportDepartment,
   escalateSupportSession,
   getChatEndpointTrace,
   getSupportSession,
@@ -9,16 +13,22 @@ import {
   listSupportProducts,
   listSupportSessions,
   listSupportTenants,
+  listSupportDepartments,
+  listSupportUsers,
   saveInquiryForSession,
   saveLeadForSession,
+  sendTranscriptForSession,
   sendAgentReply,
   takeOverSession,
+  updateSupportDepartment,
+  updateSupportUser,
 } from "./services/chat";
 import { isAuthErrorCode, parseChatApiError, shouldRefreshSession } from "./services/chatErrors";
 import {
   getStoredToken,
   hasFirebaseAuthConfig,
   initializeAuthBridge,
+  refreshStoredFirebaseToken,
   setStoredToken,
   signInWithFirebaseCredentials,
   signOutAllAuth,
@@ -27,6 +37,7 @@ import {
 const AGENT_STORAGE_KEY = "workside_support_agent";
 const SELECTED_SESSION_KEY = "workside_selected_session";
 const FILTERS_STORAGE_KEY = "workside_support_filters";
+const USER_ROLE_STORAGE_KEY = "workside_support_role";
 
 const URGENCY_OPTIONS = ["low", "medium", "high"];
 const SESSION_STATUS_OPTIONS = [
@@ -55,8 +66,48 @@ const ACCESS_DENIED_CODES = new Set([
   "PRODUCT_ACCESS_DENIED",
   "TENANT_ACCESS_DENIED",
   "GLOBAL_SCOPE_NOT_ALLOWED",
+  "FILTER_ACCESS_DENIED",
 ]);
 const POLLING_INTERVAL_MS = 5000;
+const DETAIL_EDITABLE_IDS = new Set([
+  "support-filter-product",
+  "support-filter-tenant",
+  "support-filter-status",
+  "support-filter-urgency",
+  "support-filter-assigned-to",
+  "agent-input",
+  "assign-department-input",
+  "assign-user-input",
+  "assign-note-input",
+  "transcript-to-input",
+  "transcript-subject-input",
+  "transcript-ai-input",
+  "transcript-agent-input",
+  "transcript-system-input",
+  "admin-user-name-input",
+  "admin-user-email-input",
+  "admin-user-phone-input",
+  "admin-user-role-input",
+  "admin-user-departments-input",
+  "admin-user-products-input",
+  "admin-user-tenants-input",
+  "admin-user-active-input",
+  "admin-department-id-input",
+  "admin-department-label-input",
+  "admin-department-product-input",
+  "admin-department-defaults-input",
+  "admin-department-active-input",
+  "lead-name-input",
+  "lead-email-input",
+  "lead-phone-input",
+  "lead-company-input",
+  "inquiry-summary-input",
+  "inquiry-urgency-input",
+  "inquiry-intent-input",
+  "reply-input",
+  "transfer-reason-input",
+  "transfer-note-input",
+]);
 
 function normalizeFilterState(raw) {
   const value = raw && typeof raw === "object" ? raw : {};
@@ -104,20 +155,40 @@ function isViewerRole() {
   return String(state.userRole ?? "").toLowerCase() === "viewer";
 }
 
+function isSuperAdminRole() {
+  return String(state.userRole ?? "").toLowerCase() === "super_admin";
+}
+
 async function refreshUserRole() {
   const authRef = window?.firebaseAuth;
   const currentUser = authRef?.currentUser;
   if (!currentUser || typeof currentUser.getIdTokenResult !== "function") {
-    state.userRole = "";
-    return;
+    return Boolean(state.userRole);
   }
   try {
     const tokenResult = await currentUser.getIdTokenResult();
     const claims = tokenResult?.claims ?? {};
     const claimRole = claims.role ?? claims.supportRole ?? claims.userRole ?? "";
-    state.userRole = String(claimRole ?? "").trim();
+    const normalizedRole = String(claimRole ?? "").trim();
+    if (normalizedRole) {
+      state.userRole = normalizedRole;
+      localStorage.setItem(USER_ROLE_STORAGE_KEY, normalizedRole);
+      return true;
+    }
+
+    const hasExplicitRoleClaim =
+      Object.prototype.hasOwnProperty.call(claims, "role") ||
+      Object.prototype.hasOwnProperty.call(claims, "supportRole") ||
+      Object.prototype.hasOwnProperty.call(claims, "userRole");
+
+    if (hasExplicitRoleClaim) {
+      state.userRole = "";
+      localStorage.removeItem(USER_ROLE_STORAGE_KEY);
+    }
+    return Boolean(state.userRole);
   } catch {
-    state.userRole = "";
+    // Keep last known role to avoid role flicker caused by transient auth timing.
+    return Boolean(state.userRole);
   }
 }
 
@@ -162,6 +233,8 @@ const state = {
   lastUpdatedAt: null,
   realtimeStatus: "offline",
   lastTransferQueueCount: 0,
+  knownSessionIds: new Set(),
+  sessionSoundReady: false,
   showDiagnostics: false,
   authBlocked: false,
   authMessage: "",
@@ -172,12 +245,151 @@ const state = {
   authEmail: "",
   authPassword: "",
   authPasswordVisible: false,
-  userRole: "",
+  sessionListScrollTop: 0,
+  detailPanelScrollTop: 0,
+  intakePanelStateBySession: {},
+  closeRequirementsBySession: {},
+  noFollowUpDisabledScopes: {},
+  adminPanelOpen: false,
+  adminUsers: [],
+  adminDepartments: [],
+  adminLoading: false,
+  adminError: "",
+  adminDialog: {
+    open: false,
+    type: "",
+    mode: "create",
+    id: "",
+    name: "",
+    email: "",
+    phone: "",
+    role: "support_agent",
+    departments: "",
+    allowedProducts: "",
+    allowedTenantIds: "",
+    active: true,
+    label: "",
+    product: "",
+    defaultAssigneeIds: "",
+  },
+  assignmentOptions: {
+    users: [],
+    departments: [],
+    loading: false,
+    error: "",
+  },
+  assignDialog: {
+    open: false,
+    departmentId: "",
+    assignedToUserId: "",
+    note: "",
+    notifyAssignee: true,
+    includeTranscriptSummary: true,
+  },
+  transcriptDialog: {
+    open: false,
+    to: "",
+    subject: "Your conversation transcript",
+    includeAiMessages: true,
+    includeAgentMessages: true,
+    includeSystemMessages: false,
+  },
+  confirmDialog: {
+    open: false,
+    title: "",
+    lines: [],
+    confirmLabel: "Confirm",
+    cancelLabel: "Cancel",
+    confirmTone: "primary",
+  },
+  userRole: localStorage.getItem(USER_ROLE_STORAGE_KEY) ?? "",
 };
 
 let bannerTimer = null;
 let pollingInterval = null;
 let pollingInFlight = false;
+let confirmDialogResolver = null;
+let notificationAudioContext = null;
+
+function closeConfirmDialog(result = false) {
+  if (typeof confirmDialogResolver === "function") {
+    confirmDialogResolver(Boolean(result));
+    confirmDialogResolver = null;
+  }
+  state.confirmDialog = {
+    open: false,
+    title: "",
+    lines: [],
+    confirmLabel: "Confirm",
+    cancelLabel: "Cancel",
+    confirmTone: "primary",
+  };
+  render();
+}
+
+function unlockNotificationSound() {
+  if (state.sessionSoundReady) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  try {
+    notificationAudioContext = notificationAudioContext || new AudioContextClass();
+    if (notificationAudioContext.state === "suspended") {
+      notificationAudioContext.resume().catch(() => {});
+    }
+    state.sessionSoundReady = true;
+  } catch {
+    state.sessionSoundReady = false;
+  }
+}
+
+function playNewSessionSound() {
+  if (!state.sessionSoundReady) return;
+  const audioContext = notificationAudioContext;
+  if (!audioContext) return;
+  try {
+    const startedAt = audioContext.currentTime;
+    const gain = audioContext.createGain();
+    const oscillator = audioContext.createOscillator();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, startedAt);
+    gain.gain.setValueAtTime(0.0001, startedAt);
+    gain.gain.exponentialRampToValueAtTime(0.08, startedAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.28);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(startedAt);
+    oscillator.stop(startedAt + 0.3);
+  } catch {
+    // Audio notification is best-effort; visual banner remains the source of truth.
+  }
+}
+
+async function requestConfirmationDialog({
+  title,
+  lines,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  confirmTone = "primary",
+} = {}) {
+  if (typeof confirmDialogResolver === "function") {
+    confirmDialogResolver(false);
+    confirmDialogResolver = null;
+  }
+
+  state.confirmDialog = {
+    open: true,
+    title: String(title ?? "Please Confirm"),
+    lines: Array.isArray(lines) ? lines.map((line) => String(line ?? "")) : [],
+    confirmLabel: String(confirmLabel),
+    cancelLabel: String(cancelLabel),
+    confirmTone: confirmTone === "warning" ? "warning" : "primary",
+  };
+  render();
+
+  return new Promise((resolve) => {
+    confirmDialogResolver = resolve;
+  });
+}
 
 function isUserEditingDetailForm() {
   const active = document.activeElement;
@@ -186,21 +398,7 @@ function isUserEditingDetailForm() {
   if (tagName !== "INPUT" && tagName !== "TEXTAREA" && tagName !== "SELECT") {
     return false;
   }
-
-  const editableIds = new Set([
-    "lead-name-input",
-    "lead-email-input",
-    "lead-phone-input",
-    "lead-company-input",
-    "inquiry-summary-input",
-    "inquiry-urgency-input",
-    "inquiry-intent-input",
-    "reply-input",
-    "transfer-reason-input",
-    "transfer-note-input",
-  ]);
-
-  return editableIds.has(active.id);
+  return DETAIL_EDITABLE_IDS.has(active.id);
 }
 
 function stopRealtimeAndPolling() {
@@ -213,9 +411,18 @@ function stopRealtimeAndPolling() {
 
 async function runPollingCycle() {
   if (!state.isAuthenticated || pollingInFlight) return;
+  if (state.busyAction) return;
+  if (state.confirmDialog?.open) return;
   if (isUserEditingDetailForm()) return;
   pollingInFlight = true;
   try {
+    if (!state.userRole) {
+      const hadRole = Boolean(state.userRole);
+      await refreshUserRole();
+      if (!hadRole && state.userRole) {
+        render();
+      }
+    }
     await loadSessions({ silent: true });
     if (state.selectedSessionId) {
       await loadSelectedSession({ silent: true });
@@ -307,6 +514,127 @@ function realtimeStatusLabel(status) {
   }
 }
 
+function roleBadgeLabel() {
+  if (state.userRole) return state.userRole;
+  if (state.isAuthenticated) return "role:loading";
+  return "role:unknown";
+}
+
+function buildScopeKey({ tenantId, product } = {}) {
+  const tenant = String(tenantId ?? "").trim() || "unknown_tenant";
+  const productKey = String(product ?? "").trim() || "unknown_product";
+  return `${productKey}::${tenant}`;
+}
+
+function noFollowUpScopeKeyForSession(session) {
+  return buildScopeKey({
+    tenantId: session?.tenantId,
+    product: session?.productKey,
+  });
+}
+
+function syncNoFollowUpScopeCapability(session) {
+  if (!session) return;
+  const explicitCapability = session.allowAnonymousNoFollowUpClose;
+  if (typeof explicitCapability !== "boolean") return;
+
+  const scopeKey = noFollowUpScopeKeyForSession(session);
+  if (explicitCapability) {
+    if (!state.noFollowUpDisabledScopes[scopeKey]) return;
+    const next = { ...state.noFollowUpDisabledScopes };
+    delete next[scopeKey];
+    state.noFollowUpDisabledScopes = next;
+    return;
+  }
+
+  if (state.noFollowUpDisabledScopes[scopeKey]) return;
+  state.noFollowUpDisabledScopes = {
+    ...state.noFollowUpDisabledScopes,
+    [scopeKey]: true,
+  };
+}
+
+function disableNoFollowUpForCurrentScope() {
+  const scopeKey = noFollowUpScopeKeyForSession(getSelectedSessionContext());
+  if (state.noFollowUpDisabledScopes[scopeKey]) return;
+  state.noFollowUpDisabledScopes = {
+    ...state.noFollowUpDisabledScopes,
+    [scopeKey]: true,
+  };
+}
+
+function isNoFollowUpDisabledForSession(session) {
+  if (!session) return false;
+  if (session.allowAnonymousNoFollowUpClose === false) return true;
+  const scopeKey = noFollowUpScopeKeyForSession(session);
+  return Boolean(state.noFollowUpDisabledScopes[scopeKey]);
+}
+
+function getSelectedSessionContext() {
+  if (!state.selectedSessionId) return state.selectedSession ?? null;
+  if (state.selectedSession?.id === state.selectedSessionId) return state.selectedSession;
+  const fromList = state.sessions.find((item) => item.id === state.selectedSessionId);
+  return fromList ?? state.selectedSession ?? null;
+}
+
+function sessionIntakePanelState(sessionId) {
+  if (!sessionId) return {};
+  const panels = state.intakePanelStateBySession?.[sessionId];
+  return panels && typeof panels === "object" ? panels : {};
+}
+
+function setIntakePanelOpenState(sessionId, panelKey, isOpen) {
+  if (!sessionId || !panelKey) return;
+  const current = sessionIntakePanelState(sessionId);
+  state.intakePanelStateBySession = {
+    ...state.intakePanelStateBySession,
+    [sessionId]: {
+      ...current,
+      [panelKey]: Boolean(isOpen),
+    },
+  };
+}
+
+function sessionCloseRequirements(sessionId) {
+  if (!sessionId) return {};
+  const requirements = state.closeRequirementsBySession?.[sessionId];
+  return requirements && typeof requirements === "object" ? requirements : {};
+}
+
+function markSessionCloseRequirement(sessionId, requirementKey, required = true) {
+  if (!sessionId || !requirementKey) return;
+  const current = sessionCloseRequirements(sessionId);
+  state.closeRequirementsBySession = {
+    ...state.closeRequirementsBySession,
+    [sessionId]: {
+      ...current,
+      [requirementKey]: Boolean(required),
+    },
+  };
+}
+
+function syncSessionCloseRequirements(session) {
+  if (!session?.id) return;
+  const current = sessionCloseRequirements(session.id);
+  const next = { ...current };
+  let changed = false;
+
+  if (hasRequiredLeadIdentity(session) && next.leadRequired) {
+    delete next.leadRequired;
+    changed = true;
+  }
+  if (session.inquiryCaptured && next.inquiryRequired) {
+    delete next.inquiryRequired;
+    changed = true;
+  }
+
+  if (!changed) return;
+  state.closeRequirementsBySession = {
+    ...state.closeRequirementsBySession,
+    [session.id]: next,
+  };
+}
+
 const TRACE_LABELS = {
   list_support_sessions: "List Sessions",
   get_support_session: "Get Session Detail",
@@ -318,16 +646,32 @@ const TRACE_LABELS = {
   save_inquiry_for_session: "Save Inquiry",
   list_support_products: "List Products",
   list_support_tenants: "List Tenants",
+  list_support_users: "List Support Users",
+  list_support_departments: "List Departments",
+  list_admin_support_users: "Admin Users",
+  list_admin_support_departments: "Admin Departments",
+  create_admin_support_user: "Create Support User",
+  update_admin_support_user: "Update Support User",
+  create_admin_support_department: "Create Department",
+  update_admin_support_department: "Update Department",
+  delete_admin_support_department: "Delete Department",
+  send_session_transcript: "Send Transcript",
+  assign_support_session: "Assign Session",
 };
 
 function setBanner(type, text) {
   state.banner = { type, text };
   render();
   if (bannerTimer) clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(() => {
+  const clearBanner = () => {
+    if (isUserEditingDetailForm()) {
+      bannerTimer = setTimeout(clearBanner, 1000);
+      return;
+    }
     state.banner = null;
     render();
-  }, 5000);
+  };
+  bannerTimer = setTimeout(clearBanner, 5000);
 }
 
 function focusElement(selector) {
@@ -341,10 +685,149 @@ function focusElement(selector) {
   }, 0);
 }
 
+function captureSessionListScroll() {
+  const list = app?.querySelector(".session-list");
+  if (!list) return;
+  state.sessionListScrollTop = list.scrollTop;
+}
+
+function restoreSessionListScroll() {
+  const list = app?.querySelector(".session-list");
+  if (!list) return;
+  if (!Number.isFinite(state.sessionListScrollTop)) return;
+  list.scrollTop = state.sessionListScrollTop;
+}
+
+function scrollSelectedSessionIntoView({ force = false } = {}) {
+  const list = app?.querySelector(".session-list");
+  if (!list || !state.selectedSessionId) return;
+  const selector = `[data-session-id="${CSS.escape(state.selectedSessionId)}"]`;
+  const selected = list.querySelector(selector);
+  if (!selected) return;
+
+  const listRect = list.getBoundingClientRect();
+  const selectedRect = selected.getBoundingClientRect();
+  const isFullyVisible = selectedRect.top >= listRect.top && selectedRect.bottom <= listRect.bottom;
+  if (!force && isFullyVisible) return;
+
+  const targetTop = Math.max(0, list.scrollTop + selectedRect.top - listRect.top - 12);
+  list.scrollTo({
+    top: targetTop,
+    behavior: force ? "smooth" : "auto",
+  });
+  state.sessionListScrollTop = targetTop;
+}
+
+function supportUserDisplayLabel(user) {
+  if (!user) return "Unknown user";
+  const email = String(user.email ?? "").trim();
+  return email ? `${user.name} (${email})` : user.name;
+}
+
+function hasSendableTranscriptMessages(session) {
+  if (state.messages.some((message) => String(message.body ?? "").trim())) {
+    return true;
+  }
+  return Number(session?.messageCount ?? 0) > 0;
+}
+
+function csvToList(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function listToCsv(value) {
+  return Array.isArray(value) ? value.join(", ") : "";
+}
+
+function activeAdminDepartments() {
+  return state.adminDepartments.filter((department) => department.active !== false);
+}
+
+function departmentExists(departmentId, { excludingId = "" } = {}) {
+  const normalizedId = String(departmentId ?? "").trim().toLowerCase();
+  const ignoredId = String(excludingId ?? "").trim().toLowerCase();
+  if (!normalizedId) return false;
+  return state.adminDepartments.some((department) => {
+    const currentId = String(department.id ?? "").trim().toLowerCase();
+    return currentId === normalizedId && currentId !== ignoredId;
+  });
+}
+
+function captureDetailPanelScroll() {
+  const panel = app?.querySelector(".detail-panel");
+  if (!panel) return;
+  state.detailPanelScrollTop = panel.scrollTop;
+}
+
+function restoreDetailPanelScroll() {
+  const panel = app?.querySelector(".detail-panel");
+  if (!panel) return;
+  if (!Number.isFinite(state.detailPanelScrollTop)) return;
+  panel.scrollTop = state.detailPanelScrollTop;
+}
+
+function captureDetailFormFocusState() {
+  const active = document.activeElement;
+  if (!active) return null;
+  const id = String(active.id ?? "").trim();
+  if (!id || !DETAIL_EDITABLE_IDS.has(id)) return null;
+  const canTrackSelection =
+    (active.tagName === "INPUT" || active.tagName === "TEXTAREA") &&
+    typeof active.selectionStart === "number" &&
+    typeof active.selectionEnd === "number";
+  return {
+    id,
+    selectionStart: canTrackSelection ? active.selectionStart : null,
+    selectionEnd: canTrackSelection ? active.selectionEnd : null,
+  };
+}
+
+function restoreDetailFormFocusState(focusState) {
+  if (!focusState || state.confirmDialog?.open) return;
+  const target = document.querySelector(`#${focusState.id}`);
+  if (!target || typeof target.focus !== "function") return;
+  target.focus({ preventScroll: true });
+  if (
+    typeof focusState.selectionStart === "number" &&
+    typeof focusState.selectionEnd === "number" &&
+    typeof target.setSelectionRange === "function"
+  ) {
+    target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd);
+  }
+}
+
+function errorContextLabel(contextLabel) {
+  if (contextLabel === "__close_no_follow_up__") {
+    return "Close No Follow-up";
+  }
+  return contextLabel;
+}
+
 function clearAuthBlockedState() {
   if (!state.authBlocked && !state.authMessage) return;
   state.authBlocked = false;
   state.authMessage = "";
+}
+
+function getFriendlyAuthMessage(rawMessage) {
+  const message = String(rawMessage ?? "").trim();
+  if (!message) return "Your previous session expired. Sign in again to continue.";
+  const lower = message.toLowerCase();
+
+  if (
+    lower === "unauthorized" ||
+    lower.includes("invalid auth token") ||
+    lower.includes("auth required") ||
+    lower.includes("token expired") ||
+    lower.includes("expired")
+  ) {
+    return "Your previous session expired. Sign in again to continue.";
+  }
+
+  return message;
 }
 
 async function completeAuthenticatedStartup() {
@@ -352,7 +835,22 @@ async function completeAuthenticatedStartup() {
   clearAuthBlockedState();
   state.accessDenied = false;
   state.authError = "";
+  try {
+    await refreshStoredFirebaseToken(true);
+  } catch {
+    // Non-fatal: continue with current token and allow request layer fallback behavior.
+  }
   await refreshUserRole();
+  if (!state.userRole) {
+    setTimeout(async () => {
+      if (!state.isAuthenticated || state.userRole) return;
+      const hadRole = Boolean(state.userRole);
+      await refreshUserRole();
+      if (!hadRole && state.userRole) {
+        render();
+      }
+    }, 1000);
+  }
   await loadFilterOptions({ silent: true });
   render();
 
@@ -375,6 +873,7 @@ async function handleFirebaseLogin() {
   }
 
   try {
+    clearAuthBlockedState();
     state.authError = "";
     render();
     await signInWithFirebaseCredentials(email, password);
@@ -387,6 +886,10 @@ async function handleFirebaseLogin() {
 }
 
 async function handleLogout() {
+  if (typeof confirmDialogResolver === "function") {
+    confirmDialogResolver(false);
+    confirmDialogResolver = null;
+  }
   await signOutAllAuth();
   stopRealtimeAndPolling();
 
@@ -398,11 +901,67 @@ async function handleLogout() {
   state.authEmail = "";
   state.authPassword = "";
   state.authPasswordVisible = false;
+  state.confirmDialog = {
+    open: false,
+    title: "",
+    lines: [],
+    confirmLabel: "Confirm",
+    cancelLabel: "Cancel",
+    confirmTone: "primary",
+  };
   state.sessions = [];
   state.selectedSession = null;
   state.messages = [];
+  state.intakePanelStateBySession = {};
+  state.closeRequirementsBySession = {};
+  state.noFollowUpDisabledScopes = {};
+  state.knownSessionIds = new Set();
+  state.adminPanelOpen = false;
+  state.adminUsers = [];
+  state.adminDepartments = [];
+  state.adminError = "";
+  state.adminDialog = {
+    open: false,
+    type: "",
+    mode: "create",
+    id: "",
+    name: "",
+    email: "",
+    phone: "",
+    role: "support_agent",
+    departments: "",
+    allowedProducts: "",
+    allowedTenantIds: "",
+    active: true,
+    label: "",
+    product: "",
+    defaultAssigneeIds: "",
+  };
+  state.assignmentOptions = {
+    users: [],
+    departments: [],
+    loading: false,
+    error: "",
+  };
+  state.assignDialog = {
+    open: false,
+    departmentId: "",
+    assignedToUserId: "",
+    note: "",
+    notifyAssignee: true,
+    includeTranscriptSummary: true,
+  };
+  state.transcriptDialog = {
+    open: false,
+    to: "",
+    subject: "Your conversation transcript",
+    includeAiMessages: true,
+    includeAgentMessages: true,
+    includeSystemMessages: false,
+  };
   state.accessDenied = false;
   state.userRole = "";
+  localStorage.removeItem(USER_ROLE_STORAGE_KEY);
   state.tenantOptions = [];
   state.productOptions = [];
   state.selectedSessionId = "";
@@ -424,7 +983,7 @@ function renderAuthScreen() {
         <p class="auth-subtitle">Sign in with your Workside account to access support sessions.</p>
         ${
           state.authMessage
-            ? `<div class="banner banner-warning">Auth issue: ${escapeHtml(state.authMessage)}</div>`
+            ? `<div class="banner banner-info">${escapeHtml(state.authMessage)}</div>`
             : ""
         }
         ${
@@ -439,12 +998,12 @@ function renderAuthScreen() {
               <form id="firebase-login-form" class="auth-login-form">
                 <label>
                   Email
-                  <input id="auth-email-input" type="email" value="${escapeHtml(state.authEmail)}" placeholder="you@workside.ai" />
+                  <input id="auth-email-input" type="email" autocomplete="username" value="${escapeHtml(state.authEmail)}" placeholder="you@workside.ai" />
                 </label>
                 <label>
                   Password
                   <div class="password-input-wrap">
-                    <input id="auth-password-input" type="${state.authPasswordVisible ? "text" : "password"}" value="${escapeHtml(state.authPassword)}" placeholder="Password" />
+                    <input id="auth-password-input" type="${state.authPasswordVisible ? "text" : "password"}" autocomplete="current-password" value="${escapeHtml(state.authPassword)}" placeholder="Password" />
                     <button
                       id="password-visibility-toggle"
                       class="password-visibility-toggle"
@@ -512,12 +1071,13 @@ function bindAuthEvents() {
 }
 
 async function handleChatApiError(contextLabel, error) {
+  const context = errorContextLabel(contextLabel);
   const parsed = parseChatApiError(error);
   const message = parsed.code ? `[${parsed.code}] ${parsed.message}` : parsed.message;
 
   if (isAuthErrorCode(parsed.code) || parsed.requiredAction === "login") {
     state.authBlocked = true;
-    state.authMessage = parsed.message;
+    state.authMessage = getFriendlyAuthMessage(parsed.message);
     state.isAuthenticated = false;
     state.authTokenDraft = "";
     stopRealtimeAndPolling();
@@ -543,8 +1103,38 @@ async function handleChatApiError(contextLabel, error) {
     return;
   }
 
+  const isNoFollowUpContext = contextLabel === "__close_no_follow_up__";
+  if (isNoFollowUpContext && parsed.code === "ANONYMOUS_CLOSE_NOT_ALLOWED") {
+    disableNoFollowUpForCurrentScope();
+    setBanner(
+      "info",
+      "Close No Follow-up is not available for this customer. Save the required information before closing, or ask an admin to enable anonymous no-follow-up closure.",
+    );
+    return;
+  }
+
+  if (parsed.requiredAction === "contact_admin") {
+    try {
+      await refreshStoredFirebaseToken(true);
+      await refreshUserRole();
+    } catch {
+      // Best-effort role/token sync for recently changed claims.
+    }
+    setBanner(
+      "warning",
+      parsed.code
+        ? `[${context}] [${parsed.code}] ${parsed.message || "Contact an administrator for this action."} If your role changed recently, sign out and sign back in.`
+        : (`[${context}] ${parsed.message || "Your account is missing required permissions for this action. Contact an administrator."}`),
+    );
+    render();
+    return;
+  }
+
   if (parsed.requiredAction === "collect_lead" || parsed.code === "LEAD_CAPTURE_REQUIRED") {
-    state.showDiagnostics = true;
+    if (state.selectedSessionId) {
+      markSessionCloseRequirement(state.selectedSessionId, "leadRequired", true);
+      setIntakePanelOpenState(state.selectedSessionId, "leadOpen", true);
+    }
     const firstMissing = parsed.missingFields?.[0];
     if (firstMissing === "email") {
       focusElement("#lead-email-input");
@@ -553,42 +1143,59 @@ async function handleChatApiError(contextLabel, error) {
     } else {
       focusElement("#lead-name-input");
     }
-    setBanner("error", message);
+    setBanner("warning", `${context}: save the required lead information before continuing.`);
     return;
   }
 
   if (parsed.requiredAction === "collect_name") {
     focusElement("#lead-name-input");
-    setBanner("error", message);
+    setBanner("warning", `${context}: save the contact name before continuing.`);
     return;
   }
 
   if (parsed.requiredAction === "collect_email") {
     focusElement("#lead-email-input");
-    setBanner("error", message);
+    setBanner("warning", `${context}: save the contact email before continuing.`);
+    return;
+  }
+
+  if (parsed.code === "CONTACT_EMAIL_REQUIRED") {
+    if (state.selectedSessionId) {
+      setIntakePanelOpenState(state.selectedSessionId, "leadOpen", true);
+    }
+    focusElement("#lead-email-input");
+    setBanner("warning", "Save the contact email before sending a transcript.");
+    return;
+  }
+
+  if (parsed.code === "TRANSCRIPT_EMPTY") {
+    setBanner("warning", "There are no customer-visible messages to send yet.");
     return;
   }
 
   if (parsed.requiredAction === "collect_phone") {
     focusElement("#lead-phone-input");
-    setBanner("error", message);
+    setBanner("warning", `${context}: save the contact phone before continuing.`);
     return;
   }
 
   if (parsed.requiredAction === "collect_inquiry" || parsed.code === "INQUIRY_CAPTURE_REQUIRED") {
-    state.showDiagnostics = true;
+    if (state.selectedSessionId) {
+      markSessionCloseRequirement(state.selectedSessionId, "inquiryRequired", true);
+      setIntakePanelOpenState(state.selectedSessionId, "inquiryOpen", true);
+    }
     focusElement("#inquiry-summary-input");
-    setBanner("error", message);
+    setBanner("warning", `${context}: save Inquiry Intake before this action can continue.`);
     return;
   }
 
   if (shouldRefreshSession(parsed.requiredAction, parsed.code)) {
     await loadSelectedSession({ silent: true });
-    setBanner("error", message || `${contextLabel} failed. Session was refreshed.`);
+    setBanner("error", message || `${context} failed. Session was refreshed.`);
     return;
   }
 
-  setBanner("error", `${contextLabel} failed: ${message}`);
+  setBanner("error", `${context} failed: ${message}`);
 }
 
 function extractEmail(text) {
@@ -603,6 +1210,30 @@ function extractPhone(text) {
   const regex = /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/;
   const match = String(text).match(regex);
   return match?.[0] ?? "";
+}
+
+function formatPhoneInput(value) {
+  const raw = String(value ?? "");
+  const digitsOnly = raw.replace(/\D/g, "");
+  if (!digitsOnly) return "";
+
+  const hasCountryCode = digitsOnly.length > 10 && digitsOnly.startsWith("1");
+  const localDigits = hasCountryCode ? digitsOnly.slice(1, 11) : digitsOnly.slice(0, 10);
+
+  const area = localDigits.slice(0, 3);
+  const exchange = localDigits.slice(3, 6);
+  const line = localDigits.slice(6, 10);
+
+  let formattedLocal = "";
+  if (localDigits.length <= 3) {
+    formattedLocal = area;
+  } else if (localDigits.length <= 6) {
+    formattedLocal = `(${area}) ${exchange}`;
+  } else {
+    formattedLocal = `(${area}) ${exchange}-${line}`;
+  }
+
+  return hasCountryCode ? `+1 ${formattedLocal}` : formattedLocal;
 }
 
 function extractLikelyName(text) {
@@ -717,25 +1348,129 @@ function sortSessionsByPriority(sessions) {
   return list;
 }
 
+function hasRequiredLeadIdentity(session) {
+  const name = String(session?.leadName ?? "").trim();
+  const email = String(session?.leadEmail ?? "").trim();
+  return Boolean(name && email);
+}
+
 function canCloseSession(session) {
   if (!session) return { ok: false, reason: "No session selected." };
-  if (!session.leadCaptured) {
+  const enforcedCloseRequirements = sessionCloseRequirements(session.id);
+  if (!hasRequiredLeadIdentity(session)) {
     return {
       ok: false,
-      reason: "Lead capture is required before closing this session.",
+      reason: "Save lead name and email before closing this session.",
     };
   }
-  if (session.requiresInquiryCapture && !session.inquiryCaptured) {
+  if ((session.requiresInquiryCapture || enforcedCloseRequirements.inquiryRequired) && !session.inquiryCaptured) {
     return {
       ok: false,
-      reason: "Inquiry intake is required before closing after-hours sessions.",
+      reason: "Save inquiry intake before closing this session.",
     };
   }
   return { ok: true };
 }
 
+function getActionReadiness(session, actionLabel = "this action") {
+  if (!session) return { ok: false, reason: "No session selected." };
+  const enforcedCloseRequirements = sessionCloseRequirements(session.id);
+  const inquiryRequired = Boolean(session.requiresInquiryCapture || enforcedCloseRequirements.inquiryRequired);
+
+  if (!hasRequiredLeadIdentity(session)) {
+    return {
+      ok: false,
+      reason: `Save lead name and email before ${actionLabel}.`,
+      focusSelector: "#lead-name-input",
+    };
+  }
+
+  if (inquiryRequired && !session.inquiryCaptured) {
+    return {
+      ok: false,
+      reason: `Save Inquiry Intake before ${actionLabel}.`,
+      focusSelector: "#inquiry-summary-input",
+    };
+  }
+
+  return { ok: true, reason: "" };
+}
+
+function buildCloseSessionAttempts(session) {
+  return [
+    {
+      sessionId: state.selectedSessionId,
+      tenantId: session?.tenantId || undefined,
+      product: session?.productKey || undefined,
+      reason: "closed_by_support",
+      resolutionNote: "Closed by support console",
+      confirmNoFollowUp: false,
+    },
+    {
+      sessionId: state.selectedSessionId,
+      tenantId: session?.tenantId || undefined,
+      product: session?.productKey || undefined,
+      reason: "manual",
+      resolutionNote: "Closed by support console",
+      confirmNoFollowUp: false,
+    },
+    {
+      sessionId: state.selectedSessionId,
+      resolutionNote: "Closed by support console",
+      confirmNoFollowUp: false,
+    },
+  ];
+}
+
+async function closeSessionWithFallbacks(session) {
+  let detail = null;
+  let lastError = null;
+
+  for (const attempt of buildCloseSessionAttempts(session)) {
+    try {
+      detail = await closeSupportSession(attempt);
+      if (detail?.session) return detail;
+    } catch (attemptError) {
+      lastError = attemptError;
+      const parsedAttemptError = parseChatApiError(attemptError);
+      const retryableCloseError =
+        parsedAttemptError.status === 403 ||
+        parsedAttemptError.code === "ANONYMOUS_CLOSE_NOT_ALLOWED" ||
+        parsedAttemptError.requiredAction === "contact_admin";
+      if (!retryableCloseError) {
+        throw attemptError;
+      }
+    }
+  }
+
+  throw lastError ?? new Error("Close session request failed.");
+}
+
+function isInquiryCaptureRequiredError(error) {
+  const parsed = parseChatApiError(error);
+  return parsed.requiredAction === "collect_inquiry" || parsed.code === "INQUIRY_CAPTURE_REQUIRED";
+}
+
+async function saveDraftInquiryForSelectedSession() {
+  const summary = state.inquiryDraft.messageSummary.trim();
+  if (!summary || !state.selectedSessionId) return null;
+
+  const detail = await saveInquiryForSession({
+    sessionId: state.selectedSessionId,
+    messageSummary: summary,
+    urgency: state.inquiryDraft.urgency,
+    intent: state.inquiryDraft.intent,
+  });
+
+  state.inquiryDirty = false;
+  applySessionDetail(detail, { forceDraftSync: true });
+  return detail?.session ?? null;
+}
+
 function upsertSession(nextSession) {
   if (!nextSession?.id) return;
+  syncNoFollowUpScopeCapability(nextSession);
+  syncSessionCloseRequirements(nextSession);
   const index = state.sessions.findIndex((item) => item.id === nextSession.id);
   if (index === -1) {
     state.sessions.unshift(nextSession);
@@ -755,7 +1490,7 @@ function updateDraftsFromSession(session, { force = false } = {}) {
     state.leadDraft = {
       name: session.leadName ?? "",
       email: session.leadEmail ?? "",
-      phone: session.leadPhone ?? "",
+      phone: formatPhoneInput(session.leadPhone ?? ""),
       company: session.leadCompany ?? "",
     };
   }
@@ -791,7 +1526,7 @@ function applySessionDetail(detail, { forceDraftSync = false } = {}) {
       state.leadDraft.email = inferred.email;
     }
     if (!state.leadDraft.phone && inferred.phone) {
-      state.leadDraft.phone = inferred.phone;
+      state.leadDraft.phone = formatPhoneInput(inferred.phone);
     }
   }
 
@@ -869,6 +1604,203 @@ async function loadFilterOptions({ silent = false } = {}) {
   persistFilters();
 }
 
+async function loadAdminPanelData() {
+  if (!isSuperAdminRole()) return;
+  state.adminLoading = true;
+  state.adminError = "";
+  render();
+  try {
+    const [users, departments] = await Promise.all([
+      listSupportUsers({ admin: true }),
+      listSupportDepartments({ admin: true }),
+    ]);
+    state.adminUsers = users;
+    state.adminDepartments = departments;
+  } catch (error) {
+    const parsed = parseChatApiError(error);
+    state.adminError = parsed.message || "Unable to load support admin data.";
+  } finally {
+    state.adminLoading = false;
+    render();
+  }
+}
+
+function resetAdminDialog() {
+  state.adminDialog = {
+    open: false,
+    type: "",
+    mode: "create",
+    id: "",
+    name: "",
+    email: "",
+    phone: "",
+    role: "support_agent",
+    departments: "",
+    allowedProducts: "",
+    allowedTenantIds: "",
+    active: true,
+    label: "",
+    product: "",
+    defaultAssigneeIds: "",
+  };
+}
+
+function openAdminUserDialog(user = null) {
+  if (!user && activeAdminDepartments().length === 0) {
+    setBanner("warning", "Create at least one department before adding support users.");
+    return;
+  }
+  state.adminDialog = {
+    open: true,
+    type: "user",
+    mode: user ? "edit" : "create",
+    id: user?.id ?? "",
+    name: user?.name ?? "",
+    email: user?.email ?? "",
+    phone: user?.phone ?? "",
+    role: user?.role ?? "support_agent",
+    departments: listToCsv(user?.departments),
+    allowedProducts: listToCsv(user?.allowedProducts) || state.supportFilters.product,
+    allowedTenantIds: listToCsv(user?.allowedTenantIds),
+    active: user?.active !== false,
+    label: "",
+    product: "",
+    defaultAssigneeIds: "",
+  };
+  render();
+}
+
+function openAdminDepartmentDialog(department = null) {
+  const defaultProduct = state.supportFilters.product || state.productOptions[0]?.id || FALLBACK_PRODUCTS[0]?.id || "";
+  state.adminDialog = {
+    open: true,
+    type: "department",
+    mode: department ? "edit" : "create",
+    id: department?.id ?? "",
+    name: "",
+    email: "",
+    phone: "",
+    role: "support_agent",
+    departments: "",
+    allowedProducts: "",
+    allowedTenantIds: "",
+    active: department?.active !== false,
+    label: department?.label ?? "",
+    product: department?.product ?? defaultProduct,
+    defaultAssigneeIds: listToCsv(department?.defaultAssigneeIds),
+  };
+  render();
+}
+
+function closeAdminDialog() {
+  resetAdminDialog();
+  render();
+}
+
+async function handleSaveAdminDialog() {
+  if (!isSuperAdminRole() || state.busyAction) return;
+  const dialog = state.adminDialog;
+  if (!dialog.open) return;
+
+  if (dialog.type === "user" && (!dialog.name.trim() || !dialog.email.trim())) {
+    setBanner("warning", "Support user name and email are required.");
+    return;
+  }
+  if (dialog.type === "user" && csvToList(dialog.departments).length === 0) {
+    setBanner("warning", "Choose at least one department before saving a support user.");
+    return;
+  }
+  if (dialog.type === "department" && (!dialog.id.trim() || !dialog.label.trim())) {
+    setBanner("warning", "Department id and label are required.");
+    return;
+  }
+  if (
+    dialog.type === "department" &&
+    dialog.mode === "create" &&
+    departmentExists(dialog.id)
+  ) {
+    setBanner("warning", "A department with this id already exists.");
+    return;
+  }
+
+  state.busyAction = true;
+  render();
+  try {
+    if (dialog.type === "user") {
+      const body = {
+        name: dialog.name.trim(),
+        email: dialog.email.trim(),
+        phone: dialog.phone.trim(),
+        role: dialog.role.trim() || "support_agent",
+        departments: csvToList(dialog.departments),
+        allowedProducts: csvToList(dialog.allowedProducts),
+        allowedTenantIds: csvToList(dialog.allowedTenantIds),
+        active: dialog.active,
+      };
+      if (dialog.mode === "edit") {
+        await updateSupportUser(dialog.id, body);
+      } else {
+        await createSupportUser(body);
+      }
+      setBanner("success", dialog.mode === "edit" ? "Support user updated." : "Support user created.");
+    }
+
+    if (dialog.type === "department") {
+      const body = {
+        id: dialog.id.trim(),
+        label: dialog.label.trim(),
+        product: dialog.product.trim(),
+        defaultAssigneeIds: csvToList(dialog.defaultAssigneeIds),
+        active: dialog.active,
+      };
+      if (dialog.mode === "edit") {
+        await updateSupportDepartment(dialog.id, body);
+      } else {
+        await createSupportDepartment(body);
+      }
+      setBanner("success", dialog.mode === "edit" ? "Department updated." : "Department created.");
+    }
+
+    resetAdminDialog();
+    await loadAdminPanelData();
+  } catch (error) {
+    await handleChatApiError(dialog.type === "department" ? "Save department" : "Save support user", error);
+  } finally {
+    state.busyAction = false;
+    render();
+  }
+}
+
+async function handleDeleteDepartment(departmentId) {
+  if (!isSuperAdminRole() || state.busyAction) return;
+  const department = state.adminDepartments.find((item) => item.id === departmentId);
+  if (!department) return;
+  const confirmed = await requestConfirmationDialog({
+    title: "Delete Department?",
+    lines: [
+      `Delete ${department.label || department.id}?`,
+      "This should only be used for departments that are not currently assigned to active support users or sessions.",
+    ],
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+    confirmTone: "warning",
+  });
+  if (!confirmed) return;
+
+  state.busyAction = true;
+  render();
+  try {
+    await deleteSupportDepartment(department.id);
+    setBanner("success", "Department deleted.");
+    await loadAdminPanelData();
+  } catch (error) {
+    await handleChatApiError("Delete department", error);
+  } finally {
+    state.busyAction = false;
+    render();
+  }
+}
+
 async function loadSessions({ silent = false } = {}) {
   if (!state.isAuthenticated) return;
   if (state.loadingSessions) return;
@@ -888,7 +1820,15 @@ async function loadSessions({ silent = false } = {}) {
 
     clearAuthBlockedState();
     state.accessDenied = false;
+    const previousSessionIds = state.knownSessionIds;
+    const nextSessionIds = new Set(sessions.map((session) => session.id).filter(Boolean));
+    const newSessionCount = [...nextSessionIds].filter((id) => !previousSessionIds.has(id)).length;
     state.sessions = sortSessionsByPriority(sessions);
+    const shouldRevealSelectedSession = Boolean(state.selectedSessionId);
+    for (const session of state.sessions) {
+      syncNoFollowUpScopeCapability(session);
+      syncSessionCloseRequirements(session);
+    }
     state.lastUpdatedAt = new Date().toISOString();
 
     const queueCount = state.sessions.filter(
@@ -902,6 +1842,14 @@ async function loadSessions({ silent = false } = {}) {
         `${delta} new transfer ${delta === 1 ? "request" : "requests"} entered the queue.`,
       );
     }
+    if (silent && previousSessionIds.size > 0 && newSessionCount > 0) {
+      playNewSessionSound();
+      setBanner(
+        "success",
+        `${newSessionCount} new session ${newSessionCount === 1 ? "arrived" : "arrived"}.`,
+      );
+    }
+    state.knownSessionIds = nextSessionIds;
     state.lastTransferQueueCount = queueCount;
 
     if (state.selectedSessionId && !state.sessions.some((session) => session.id === state.selectedSessionId)) {
@@ -919,6 +1867,11 @@ async function loadSessions({ silent = false } = {}) {
         state.selectedSessionId = preferred.id;
         localStorage.setItem(SELECTED_SESSION_KEY, preferred.id);
       }
+    }
+    if (shouldRevealSelectedSession) {
+      setTimeout(() => {
+        scrollSelectedSessionIntoView();
+      }, 0);
     }
   } catch (error) {
     if (!silent) {
@@ -958,10 +1911,15 @@ async function loadSelectedSession({ silent = false } = {}) {
 async function handleSessionSelect(sessionId) {
   if (!sessionId || state.selectedSessionId === sessionId) return;
   state.selectedSessionId = sessionId;
+  state.selectedSession = null;
+  state.messages = [];
   state.replyDraft = "";
   state.leadDirty = false;
   state.inquiryDirty = false;
   state.transferDirty = false;
+  state.assignDialog.open = false;
+  state.transcriptDialog.open = false;
+  state.detailPanelScrollTop = 0;
   localStorage.setItem(SELECTED_SESSION_KEY, sessionId);
   render();
   await loadSelectedSession();
@@ -1003,8 +1961,19 @@ async function handleRequestTransfer() {
     setBanner("warning", "Viewer role is read-only.");
     return;
   }
-  if (!state.selectedSession?.leadCaptured) {
-    setBanner("error", "Capture lead name and email before requesting transfer.");
+  const activeSession = getSelectedSessionContext();
+  const transferReadiness = getActionReadiness(activeSession, "requesting transfer");
+  if (!transferReadiness.ok) {
+    if (activeSession?.id) {
+      if (transferReadiness.focusSelector === "#lead-name-input") {
+        setIntakePanelOpenState(activeSession.id, "leadOpen", true);
+      }
+      if (transferReadiness.focusSelector === "#inquiry-summary-input") {
+        setIntakePanelOpenState(activeSession.id, "inquiryOpen", true);
+      }
+    }
+    setBanner("warning", transferReadiness.reason);
+    focusElement(transferReadiness.focusSelector);
     return;
   }
 
@@ -1046,6 +2015,7 @@ async function handleSendReply() {
   state.busyAction = true;
   render();
   try {
+    const sentAt = new Date().toISOString();
     const detail = await sendAgentReply({
       sessionId: state.selectedSessionId,
       message: text,
@@ -1055,6 +2025,19 @@ async function handleSendReply() {
     clearAuthBlockedState();
     state.replyDraft = "";
     applySessionDetail(detail);
+    if (!state.messages.some((message) => message.sender === "agent" && message.body === text)) {
+      state.messages = [
+        ...state.messages,
+        {
+          id: `local-reply-${crypto.randomUUID()}`,
+          sessionId: state.selectedSessionId,
+          tenantId: state.selectedSession?.tenantId,
+          sender: "agent",
+          body: text,
+          createdAt: sentAt,
+        },
+      ];
+    }
     setBanner("success", "Reply sent.");
   } catch (error) {
     await handleChatApiError("Send reply", error);
@@ -1064,8 +2047,202 @@ async function handleSendReply() {
   }
 }
 
+async function loadAssignmentOptions(session) {
+  if (!session) return;
+  state.assignmentOptions = {
+    ...state.assignmentOptions,
+    loading: true,
+    error: "",
+  };
+  render();
+  try {
+    const [departments, users] = await Promise.all([
+      listSupportDepartments({
+        product: session.productKey || undefined,
+      }),
+      listSupportUsers({
+        product: session.productKey || undefined,
+        tenantId: session.tenantId || undefined,
+        departmentId: state.assignDialog.departmentId || undefined,
+      }),
+    ]);
+    state.assignmentOptions = {
+      users,
+      departments,
+      loading: false,
+      error: "",
+    };
+    if (!state.assignDialog.departmentId && departments[0]?.id) {
+      state.assignDialog.departmentId = departments[0].id;
+    }
+    if (
+      !state.assignDialog.assignedToUserId &&
+      session.assignedToUserId &&
+      users.some((user) => user.id === session.assignedToUserId)
+    ) {
+      state.assignDialog.assignedToUserId = session.assignedToUserId;
+    } else if (!state.assignDialog.assignedToUserId && users[0]?.id) {
+      state.assignDialog.assignedToUserId = users[0].id;
+    }
+  } catch (error) {
+    const parsed = parseChatApiError(error);
+    state.assignmentOptions = {
+      users: [],
+      departments: [],
+      loading: false,
+      error: parsed.message || "Unable to load assignment options.",
+    };
+  } finally {
+    render();
+  }
+}
+
+async function handleOpenAssignDialog() {
+  const session = getSelectedSessionContext();
+  if (!session || state.busyAction) return;
+  if (isViewerRole()) {
+    setBanner("warning", "Viewer role is read-only.");
+    return;
+  }
+  state.assignDialog = {
+    open: true,
+    departmentId: session.departmentId || "",
+    assignedToUserId: "",
+    note: "",
+    notifyAssignee: true,
+    includeTranscriptSummary: true,
+  };
+  render();
+  await loadAssignmentOptions(session);
+}
+
+function handleCloseAssignDialog() {
+  state.assignDialog.open = false;
+  render();
+}
+
+function handleOpenTranscriptDialog() {
+  const session = getSelectedSessionContext();
+  if (!session || state.busyAction) return;
+  if (isViewerRole()) {
+    setBanner("warning", "Viewer role is read-only.");
+    return;
+  }
+  if (!session.leadEmail) {
+    setIntakePanelOpenState(session.id, "leadOpen", true);
+    setBanner("warning", "Save the contact email before sending a transcript.");
+    focusElement("#lead-email-input");
+    return;
+  }
+  if (!hasSendableTranscriptMessages(session)) {
+    setBanner("warning", "There are no customer-visible messages to send yet.");
+    return;
+  }
+
+  state.transcriptDialog = {
+    open: true,
+    to: session.leadEmail,
+    subject: "Your conversation transcript",
+    includeAiMessages: true,
+    includeAgentMessages: true,
+    includeSystemMessages: false,
+  };
+  render();
+}
+
+function handleCloseTranscriptDialog() {
+  state.transcriptDialog.open = false;
+  render();
+}
+
+async function handleAssignSession() {
+  const session = getSelectedSessionContext();
+  if (!session || state.busyAction) return;
+  if (!state.assignDialog.assignedToUserId) {
+    state.assignmentOptions.error = "Choose a support user before assigning this session.";
+    render();
+    return;
+  }
+
+  state.busyAction = true;
+  state.assignmentOptions.error = "";
+  render();
+  try {
+    const detail = await assignSupportSession({
+      sessionId: state.selectedSessionId,
+      tenantId: session.tenantId || undefined,
+      product: session.productKey || undefined,
+      departmentId: state.assignDialog.departmentId || undefined,
+      assignedToUserId: state.assignDialog.assignedToUserId,
+      note: state.assignDialog.note.trim(),
+      notifyAssignee: state.assignDialog.notifyAssignee,
+      includeTranscriptSummary: state.assignDialog.includeTranscriptSummary,
+    });
+    applySessionDetail(detail);
+    state.assignDialog.open = false;
+    await loadSessions({ silent: true });
+    setBanner("success", "Session assigned.");
+  } catch (error) {
+    const parsed = parseChatApiError(error);
+    const assignmentCodes = new Set([
+      "ASSIGNEE_REQUIRED",
+      "ASSIGNEE_NOT_FOUND",
+      "ASSIGNEE_INACTIVE",
+      "ASSIGNEE_ACCESS_DENIED",
+      "DEPARTMENT_NOT_FOUND",
+      "DEPARTMENT_INACTIVE",
+      "ASSIGNMENT_VALIDATION_ERROR",
+    ]);
+    if (assignmentCodes.has(parsed.code) || parsed.requiredAction === "choose_assignee") {
+      state.assignmentOptions.error =
+        parsed.message || "Choose another support user or department before assigning this session.";
+    } else {
+      await handleChatApiError("Assign session", error);
+    }
+  } finally {
+    state.busyAction = false;
+    render();
+  }
+}
+
+async function handleSendTranscript() {
+  const session = getSelectedSessionContext();
+  if (!session || state.busyAction) return;
+  const to = state.transcriptDialog.to.trim();
+  const subject = state.transcriptDialog.subject.trim();
+  if (!to) {
+    setBanner("warning", "Enter the contact email before sending a transcript.");
+    focusElement("#transcript-to-input");
+    return;
+  }
+
+  state.busyAction = true;
+  render();
+  try {
+    const detail = await sendTranscriptForSession({
+      sessionId: state.selectedSessionId,
+      tenantId: session.tenantId || undefined,
+      product: session.productKey || undefined,
+      to,
+      subject: subject || undefined,
+      includeAiMessages: state.transcriptDialog.includeAiMessages,
+      includeAgentMessages: state.transcriptDialog.includeAgentMessages,
+      includeSystemMessages: state.transcriptDialog.includeSystemMessages,
+    });
+    applySessionDetail(detail);
+    state.transcriptDialog.open = false;
+    setBanner("success", `Transcript sent to ${to}.`);
+  } catch (error) {
+    await handleChatApiError("Send transcript", error);
+  } finally {
+    state.busyAction = false;
+    render();
+  }
+}
+
 async function handleSaveLead() {
-  if (!state.selectedSessionId || state.busyAction) return;
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || state.busyAction) return;
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
@@ -1073,6 +2250,8 @@ async function handleSaveLead() {
 
   const name = state.leadDraft.name.trim();
   const email = state.leadDraft.email.trim();
+  const phone = state.leadDraft.phone.trim();
+  const company = state.leadDraft.company.trim();
 
   if (!name || !email) {
     setBanner("error", "Name and email are required to satisfy lead capture enforcement.");
@@ -1083,17 +2262,19 @@ async function handleSaveLead() {
   render();
   try {
     const detail = await saveLeadForSession({
-      sessionId: state.selectedSessionId,
+      sessionId,
       name,
       email,
-      phone: state.leadDraft.phone.trim(),
-      company: state.leadDraft.company.trim(),
+      phone,
+      company,
     });
 
     clearAuthBlockedState();
     state.leadDirty = false;
     applySessionDetail(detail, { forceDraftSync: true });
     setBanner("success", "Lead details saved.");
+    await loadSessions({ silent: true });
+    scrollSelectedSessionIntoView({ force: true });
   } catch (error) {
     await handleChatApiError("Save lead", error);
   } finally {
@@ -1129,6 +2310,8 @@ async function handleSaveInquiry() {
     state.inquiryDirty = false;
     applySessionDetail(detail, { forceDraftSync: true });
     setBanner("success", "Inquiry intake saved.");
+    await loadSessions({ silent: true });
+    scrollSelectedSessionIntoView({ force: true });
   } catch (error) {
     await handleChatApiError("Save inquiry", error);
   } finally {
@@ -1150,25 +2333,45 @@ function handleGenerateInquirySummary() {
 }
 
 async function handleCloseSession() {
-  if (!state.selectedSession || state.busyAction) return;
+  const activeSession = getSelectedSessionContext();
+  if (!activeSession || state.busyAction) return;
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
   }
 
-  const closeCheck = canCloseSession(state.selectedSession);
+  const closeCheck = canCloseSession(activeSession);
   if (!closeCheck.ok) {
     setBanner("error", closeCheck.reason);
     return;
   }
 
+  const confirmed = await requestConfirmationDialog({
+    title: "Close Session?",
+    lines: [
+      "This will move the session to Closed.",
+      "You can still review history afterward, but the conversation will be treated as resolved.",
+    ],
+    confirmLabel: "Close Session",
+    cancelLabel: "Cancel",
+    confirmTone: "warning",
+  });
+  if (!confirmed) return;
+
   state.busyAction = true;
   render();
   try {
-    const detail = await closeSupportSession({
-      sessionId: state.selectedSessionId,
-      reason: "closed_by_support",
-    });
+    let detail = null;
+    try {
+      detail = await closeSessionWithFallbacks(activeSession);
+    } catch (closeError) {
+      if (!isInquiryCaptureRequiredError(closeError) || !state.inquiryDraft.messageSummary.trim()) {
+        throw closeError;
+      }
+
+      const updatedSession = await saveDraftInquiryForSelectedSession();
+      detail = await closeSessionWithFallbacks(updatedSession ?? getSelectedSessionContext() ?? activeSession);
+    }
 
     clearAuthBlockedState();
     applySessionDetail(detail);
@@ -1182,33 +2385,44 @@ async function handleCloseSession() {
 }
 
 async function handleCloseNoFollowUp() {
-  if (!state.selectedSession || state.busyAction) return;
+  const activeSession = getSelectedSessionContext();
+  if (!activeSession || state.busyAction) return;
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
   }
-  if (state.selectedSession.status === "closed") {
+  if (activeSession.status === "closed") {
     setBanner("warning", "This session is already closed.");
     return;
   }
+  if (isNoFollowUpDisabledForSession(activeSession)) {
+    setBanner(
+      "warning",
+      "Close No Follow-up is not enabled for this tenant. Ask an admin to enable allowAnonymousNoFollowUpClose.",
+    );
+    return;
+  }
 
-  const confirmed = window.confirm(
-    [
-      "Close this session as 'No Follow-up (Anonymous)'?",
-      "",
-      "This will preserve the record for audit/reporting.",
-      "If lead/inquiry data is required, the console will save minimal placeholders automatically before closing.",
-    ].join("\n"),
-  );
+  const confirmed = await requestConfirmationDialog({
+    title: "Close As No Follow-up?",
+    lines: [
+      "This will close the session as an anonymous no-follow-up outcome.",
+      "The record will be preserved for audit/reporting.",
+      "If lead/inquiry data is required, minimal placeholders will be saved automatically first.",
+    ],
+    confirmLabel: "Close Session",
+    cancelLabel: "Cancel",
+    confirmTone: "warning",
+  });
   if (!confirmed) return;
 
   state.busyAction = true;
   render();
 
   try {
-    let currentSession = state.selectedSession;
+    let currentSession = activeSession;
 
-    if (!currentSession.leadCaptured) {
+    if (!hasRequiredLeadIdentity(currentSession)) {
       const fallbackName = currentSession.leadName?.trim() || "Anonymous Caller";
       const fallbackEmail =
         currentSession.leadEmail?.trim() ||
@@ -1242,14 +2456,18 @@ async function handleCloseNoFollowUp() {
 
     const detail = await closeSupportSession({
       sessionId: state.selectedSessionId,
+      tenantId: currentSession?.tenantId || undefined,
+      product: currentSession?.productKey || undefined,
       reason: "anonymous_no_follow_up",
+      resolutionNote: "No follow-up required",
+      confirmNoFollowUp: true,
     });
 
     clearAuthBlockedState();
     applySessionDetail(detail);
     setBanner("success", "Session closed as No Follow-up.");
   } catch (error) {
-    await handleChatApiError("Close as no follow-up", error);
+    await handleChatApiError("__close_no_follow_up__", error);
   } finally {
     state.busyAction = false;
     render();
@@ -1272,10 +2490,10 @@ function renderSessionList(sessions) {
   return sessions
     .map((session) => {
       const label = session.leadName || session.leadEmail || "Anonymous visitor";
-      const leadState = session.leadCaptured ? "Lead captured" : "Lead missing";
+      const leadState = hasRequiredLeadIdentity(session) ? "Lead captured" : "Lead missing";
       const tenantLabel = session.tenantName || session.organizationName || session.tenantId || "Unknown tenant";
       const compactTenantLabel = abbreviateMiddle(tenantLabel, { max: 28, keep: 8 });
-      const assignedTo = session.assignedToUserId || "Unassigned";
+      const assignedTo = session.assignedToName || session.assignedToEmail || session.assignedToUserId || "Unassigned";
       const isSelected = session.id === state.selectedSessionId;
       return `
         <button class="session-card ${isSelected ? "is-selected" : ""}" data-session-id="${escapeHtml(
@@ -1394,6 +2612,47 @@ function renderDiagnosticsPanel() {
   `;
 }
 
+function renderSessionOperationsSummary(session) {
+  const latestAssignment = session.latestAssignment;
+  const assignmentLabel = latestAssignment
+    ? latestAssignment.assignedToName ||
+      latestAssignment.assignedToEmail ||
+      latestAssignment.assignedToUserId ||
+      "Assigned"
+    : session.assignedToName || session.assignedToEmail || session.assignedToUserId || "Unassigned";
+  const assignmentMeta = latestAssignment?.assignedAt
+    ? `Updated ${formatTimestamp(latestAssignment.assignedAt)}`
+    : session.departmentLabel
+      ? "Current routing"
+      : "No assignment history";
+  const transcriptLabel = session.lastTranscriptSentAt
+    ? `Sent ${formatTimestamp(session.lastTranscriptSentAt)}`
+    : "Not sent";
+  const transcriptMeta = session.lastTranscriptSentTo
+    ? `To ${session.lastTranscriptSentTo}`
+    : "No transcript email recorded";
+
+  return `
+    <section class="operations-summary" aria-label="Assignment and transcript status">
+      <article>
+        <span>Assignment</span>
+        <strong>${escapeHtml(assignmentLabel)}</strong>
+        <p>${escapeHtml(assignmentMeta)}</p>
+      </article>
+      <article>
+        <span>Department</span>
+        <strong>${escapeHtml(latestAssignment?.departmentLabel || session.departmentLabel || "Unassigned")}</strong>
+        <p>${escapeHtml(latestAssignment?.note || "No assignment note")}</p>
+      </article>
+      <article>
+        <span>Transcript</span>
+        <strong>${escapeHtml(transcriptLabel)}</strong>
+        <p>${escapeHtml(transcriptMeta)}</p>
+      </article>
+    </section>
+  `;
+}
+
 function renderDetailPanel() {
   if (!state.selectedSessionId) {
     return `
@@ -1404,7 +2663,20 @@ function renderDetailPanel() {
     `;
   }
 
-  const session = state.selectedSession ?? state.sessions.find((item) => item.id === state.selectedSessionId);
+  if (state.loadingSession && (!state.selectedSession || state.selectedSession.id !== state.selectedSessionId)) {
+    return `
+      <section class="detail-loading" aria-live="polite" aria-busy="true">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <h2>Loading session</h2>
+        <p>Fetching the selected conversation, lead details, and intake status.</p>
+      </section>
+    `;
+  }
+
+  const session =
+    state.selectedSession?.id === state.selectedSessionId
+      ? state.selectedSession
+      : state.sessions.find((item) => item.id === state.selectedSessionId);
   if (!session) {
     return `
       <section class="detail-empty">
@@ -1418,34 +2690,83 @@ function renderDetailPanel() {
   const readOnly = isViewerRole();
   const canTakeOver = !readOnly && session.status === "escalated";
   const canRequestTransfer = !readOnly && session.status === "active_ai";
+  const transferReadiness = getActionReadiness(session, "requesting transfer");
+  const requestTransferButtonEnabled = canRequestTransfer && transferReadiness.ok && !state.busyAction;
   const canReply = !readOnly && session.status === "active_human";
   const canEditIntake = !readOnly;
-  const canCloseNoFollowUp = !readOnly && session.status !== "closed";
+  const transcriptHasMessages = hasSendableTranscriptMessages(session);
+  const canSendTranscript = !readOnly && Boolean(session.leadEmail) && transcriptHasMessages && !state.busyAction;
+  const transcriptTitle = !session.leadEmail
+    ? "Save contact email before sending transcript"
+    : !transcriptHasMessages
+      ? "No customer-visible messages are available for transcript"
+      : `Send transcript to ${session.leadEmail}`;
+  const canAssignSession = !readOnly && session.status !== "closed" && !state.busyAction;
+  const noFollowUpDisabled = isNoFollowUpDisabledForSession(session);
+  const canCloseNoFollowUp = !readOnly && session.status !== "closed" && !noFollowUpDisabled;
+  const leadIdentityCaptured = hasRequiredLeadIdentity(session);
   const tenantLabel = session.tenantName || session.organizationName || session.tenantId || "Unknown";
   const tenantIdTooltip = session.tenantId
     ? `Tenant ID: ${session.tenantId}`
     : "Tenant ID is not available for this session.";
-  const closeActionHint = readOnly
-    ? "Viewer role is read-only. You cannot close sessions."
-    : closeCheck.ok
-      ? "To set status to Closed, click Close Session."
-      : `${closeCheck.reason} If no follow-up is needed, use Close No Follow-up.`;
-  const leadNeedsAttention = !session.leadCaptured || state.leadDirty;
+  const leadNeedsAttention = !leadIdentityCaptured || state.leadDirty;
   const inquiryNeedsAttention =
     (session.requiresInquiryCapture && !session.inquiryCaptured) || state.inquiryDirty;
-  const inquiryStateLabel = !session.requiresInquiryCapture
+  const panelState = sessionIntakePanelState(session.id);
+  const leadPanelOpen = typeof panelState.leadOpen === "boolean" ? panelState.leadOpen : leadNeedsAttention;
+  const inquiryPanelOpen =
+    typeof panelState.inquiryOpen === "boolean" ? panelState.inquiryOpen : inquiryNeedsAttention;
+  const enforcedCloseRequirements = sessionCloseRequirements(session.id);
+  const leadDraftReady = Boolean(state.leadDraft.name.trim() && state.leadDraft.email.trim());
+  const inquiryDraftReady = Boolean(state.inquiryDraft.messageSummary.trim());
+  const inquiryRequiredForClose = Boolean(session.requiresInquiryCapture || enforcedCloseRequirements.inquiryRequired);
+  const leadReadyForCloseUi = leadIdentityCaptured;
+  const inquiryReadyForCloseUi = Boolean(!inquiryRequiredForClose || session.inquiryCaptured);
+  const needsLeadSaveForClose = !leadIdentityCaptured && leadDraftReady;
+  const needsInquirySaveForClose = inquiryRequiredForClose && !session.inquiryCaptured && inquiryDraftReady;
+  const inquiryStateLabel = !inquiryRequiredForClose
     ? "Not required"
     : session.inquiryCaptured
       ? "Captured"
       : "Required";
+  const closeButtonEnabled =
+    !readOnly &&
+    closeCheck.ok &&
+    leadReadyForCloseUi &&
+    inquiryReadyForCloseUi &&
+    !state.busyAction;
+  const closeActionHint = readOnly
+    ? "Viewer role is read-only. You cannot close sessions."
+    : needsLeadSaveForClose
+      ? "Lead details are filled in. Click Save Lead to enable Close Session."
+      : needsInquirySaveForClose
+        ? "Inquiry details are filled in. Click Save Inquiry to enable Close Session."
+        : !leadReadyForCloseUi
+          ? "Complete Name and Email in Lead Capture to enable Close Session."
+          : !inquiryReadyForCloseUi
+            ? "Complete Inquiry Summary in Inquiry Intake to enable Close Session."
+            : closeCheck.ok
+              ? "To set status to Closed, click Close Session."
+              : noFollowUpDisabled
+                ? `${closeCheck.reason} Close No Follow-up is disabled for this tenant.`
+                : `${closeCheck.reason} If no follow-up is needed, use Close No Follow-up.`;
+  const closeNoFollowUpTitle = noFollowUpDisabled
+    ? "Close No Follow-up is disabled for this tenant."
+    : "Close anonymous/no-follow-up sessions with confirmation";
+  const noFollowUpStatus = noFollowUpDisabled
+    ? "Unavailable for this customer"
+    : "Available when there is no actionable request";
+  const normalCloseStatus = closeCheck.ok
+    ? "Ready"
+    : closeCheck.reason;
   const readinessItems = [
     {
       label: "Lead captured",
-      complete: Boolean(session.leadCaptured),
+      complete: leadIdentityCaptured,
     },
     {
       label: "Inquiry captured",
-      complete: !session.requiresInquiryCapture || Boolean(session.inquiryCaptured),
+      complete: !inquiryRequiredForClose || Boolean(session.inquiryCaptured),
     },
     {
       label: "Transfer requested",
@@ -1463,6 +2784,7 @@ function renderDetailPanel() {
         <div>
           <h2>Session ${escapeHtml(session.id)}</h2>
           <p>${escapeHtml(productLabelFromKey(session.productKey))} | ${escapeHtml(tenantLabel)}</p>
+          <p class="detail-session-time">Last activity: ${escapeHtml(formatTimestamp(session.updatedAt))} | Started: ${escapeHtml(formatTimestamp(session.createdAt))}</p>
           <p class="close-action-hint">${escapeHtml(closeActionHint)}</p>
         </div>
         <div class="detail-actions">
@@ -1470,18 +2792,35 @@ function renderDetailPanel() {
             Accept Transfer
           </button>
           <button
+            id="assign-session-button"
+            class="button"
+            type="button"
+            ${canAssignSession ? "" : "disabled"}
+          >
+            Assign
+          </button>
+          <button
+            id="send-transcript-button"
+            class="button"
+            type="button"
+            title="${escapeHtml(transcriptTitle)}"
+            ${canSendTranscript ? "" : "disabled"}
+          >
+            Send Transcript
+          </button>
+          <button
             id="close-no-followup-button"
             class="button button-warning"
-            title="Close anonymous/no-follow-up sessions with confirmation"
+            title="${escapeHtml(closeNoFollowUpTitle)}"
             ${canCloseNoFollowUp && !state.busyAction ? "" : "disabled"}
           >
-            Close No Follow-up
+            ${noFollowUpDisabled ? "No Follow-up Disabled" : "Close No Follow-up"}
           </button>
           <button
             id="close-button"
             class="button button-quiet"
             title="${escapeHtml(closeActionHint)}"
-            ${!readOnly && closeCheck.ok && !state.busyAction ? "" : "disabled"}
+            ${closeButtonEnabled ? "" : "disabled"}
           >
             Close Session
           </button>
@@ -1494,40 +2833,63 @@ function renderDetailPanel() {
         <div><dt>Organization</dt><dd>${escapeHtml(session.organizationName || "n/a")}</dd></div>
         <div><dt>Source App</dt><dd>${escapeHtml(session.sourceApp || session.source || "n/a")}</dd></div>
         <div><dt>Status</dt><dd>${statusLabel(session.status)}</dd></div>
-        <div><dt>Lead</dt><dd>${session.leadCaptured ? "Captured" : "Missing"}</dd></div>
+        <div><dt>Lead</dt><dd>${leadIdentityCaptured ? "Captured" : "Missing"}</dd></div>
         <div><dt>Inquiry</dt><dd>${session.inquiryCaptured ? "Captured" : "Not captured"}</dd></div>
-        <div><dt>Owner</dt><dd>${escapeHtml(session.assignedToUserId || state.agentName || "Unassigned")}</dd></div>
+        <div><dt>Owner</dt><dd>${escapeHtml(session.assignedToName || session.assignedToEmail || session.assignedToUserId || state.agentName || "Unassigned")}</dd></div>
+        <div><dt>Department</dt><dd>${escapeHtml(session.departmentLabel || "Unassigned")}</dd></div>
       </dl>
 
+      ${renderSessionOperationsSummary(session)}
+
+      <section class="closure-guide" aria-label="Closure options">
+        <div class="closure-guide-item">
+          <span>No details, no follow-up</span>
+          <strong>Use Close No Follow-up</strong>
+          <p>${escapeHtml(noFollowUpStatus)}.</p>
+        </div>
+        <div class="closure-guide-item">
+          <span>Contact captured, no action needed</span>
+          <strong>Save Lead, then close</strong>
+          <p>Close Session becomes available after saved required lead fields are reflected on the session.</p>
+        </div>
+        <div class="closure-guide-item">
+          <span>Contact plus request</span>
+          <strong>Save Lead and Inquiry</strong>
+          <p>${escapeHtml(normalCloseStatus)}</p>
+        </div>
+      </section>
+
       <section class="intake-accordion">
-        <details class="intake-panel" ${leadNeedsAttention ? "open" : ""}>
+        <details id="lead-intake-panel" class="intake-panel" ${leadPanelOpen ? "open" : ""}>
           <summary>
             <span>Lead Capture</span>
-            <strong>${session.leadCaptured ? "Captured" : "Required"}</strong>
+            <strong>${leadIdentityCaptured ? "Captured" : "Required"}</strong>
           </summary>
           <form id="lead-form" class="intake-form">
             <p>Name + email required before close.</p>
-            <label>
-              Name
-              <input id="lead-name-input" value="${escapeHtml(state.leadDraft.name)}" placeholder="Full name" ${canEditIntake ? "" : "disabled"} />
-            </label>
-            <label>
-              Email
-              <input id="lead-email-input" type="email" value="${escapeHtml(state.leadDraft.email)}" placeholder="name@example.com" ${canEditIntake ? "" : "disabled"} />
-            </label>
-            <label>
-              Phone
-              <input id="lead-phone-input" value="${escapeHtml(state.leadDraft.phone)}" placeholder="Optional" ${canEditIntake ? "" : "disabled"} />
-            </label>
-            <label>
-              Company
-              <input id="lead-company-input" value="${escapeHtml(state.leadDraft.company)}" placeholder="Optional" ${canEditIntake ? "" : "disabled"} />
-            </label>
+            <div class="intake-form-grid-two">
+              <label>
+                Name
+                <input id="lead-name-input" value="${escapeHtml(state.leadDraft.name)}" placeholder="Full name" ${canEditIntake ? "" : "disabled"} />
+              </label>
+              <label>
+                Email
+                <input id="lead-email-input" type="email" value="${escapeHtml(state.leadDraft.email)}" placeholder="name@example.com" ${canEditIntake ? "" : "disabled"} />
+              </label>
+              <label>
+                Phone
+                <input id="lead-phone-input" type="tel" inputmode="tel" autocomplete="tel" value="${escapeHtml(state.leadDraft.phone)}" placeholder="(555) 555-5555" ${canEditIntake ? "" : "disabled"} />
+              </label>
+              <label>
+                Company
+                <input id="lead-company-input" value="${escapeHtml(state.leadDraft.company)}" placeholder="Optional" ${canEditIntake ? "" : "disabled"} />
+              </label>
+            </div>
             <button class="button button-primary" type="submit" ${state.busyAction || !canEditIntake ? "disabled" : ""}>Save Lead</button>
           </form>
         </details>
 
-        <details class="intake-panel" ${inquiryNeedsAttention ? "open" : ""}>
+        <details id="inquiry-intake-panel" class="intake-panel" ${inquiryPanelOpen ? "open" : ""}>
           <summary>
             <span>Inquiry Intake</span>
             <strong>${escapeHtml(inquiryStateLabel)}</strong>
@@ -1600,9 +2962,20 @@ function renderDetailPanel() {
                   state.transferDraft.note,
                 )}</textarea>
               </label>
-              <button id="request-transfer-button" class="button" type="submit" ${!state.busyAction ? "" : "disabled"}>
+              <button
+                id="request-transfer-button"
+                class="button"
+                type="submit"
+                title="${escapeHtml(transferReadiness.ok ? "Request human transfer" : transferReadiness.reason)}"
+                ${requestTransferButtonEnabled ? "" : "disabled"}
+              >
                 Request Transfer
               </button>
+              ${
+                transferReadiness.ok
+                  ? ""
+                  : `<p class="transfer-action-note">${escapeHtml(transferReadiness.reason)}</p>`
+              }
             </form>
           `
           : ""
@@ -1631,7 +3004,431 @@ function renderDetailPanel() {
   `;
 }
 
+function renderConfirmDialog() {
+  if (!state.confirmDialog?.open) return "";
+  const confirmToneClass =
+    state.confirmDialog.confirmTone === "warning" ? "button button-warning" : "button button-primary";
+  return `
+    <div id="confirm-dialog-backdrop" class="confirm-overlay" role="presentation">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+        <header class="confirm-dialog-header">
+          <h3 id="confirm-dialog-title">${escapeHtml(state.confirmDialog.title || "Please Confirm")}</h3>
+        </header>
+        <div class="confirm-dialog-body">
+          ${(state.confirmDialog.lines ?? [])
+            .map((line) => `<p>${escapeHtml(line)}</p>`)
+            .join("")}
+        </div>
+        <footer class="confirm-dialog-actions">
+          <button id="confirm-dialog-cancel" class="button button-quiet" type="button">${escapeHtml(
+            state.confirmDialog.cancelLabel || "Cancel",
+          )}</button>
+          <button id="confirm-dialog-confirm" class="${confirmToneClass}" type="button">${escapeHtml(
+            state.confirmDialog.confirmLabel || "Confirm",
+          )}</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
+function renderAssignDialog() {
+  if (!state.assignDialog.open) return "";
+  const session = getSelectedSessionContext();
+  const departments = state.assignmentOptions.departments;
+  const users = state.assignmentOptions.users;
+  const selectedDepartment = departments.find((department) => department.id === state.assignDialog.departmentId);
+  const selectedUser = users.find((user) => user.id === state.assignDialog.assignedToUserId);
+  const currentOwner =
+    session?.assignedToName || session?.assignedToEmail || session?.assignedToUserId || "Unassigned";
+  const eligibleUsers = users.filter((user) => user.active !== false);
+  return `
+    <div id="assign-dialog-backdrop" class="confirm-overlay" role="presentation">
+      <section class="confirm-dialog assign-dialog" role="dialog" aria-modal="true" aria-labelledby="assign-dialog-title">
+        <header class="confirm-dialog-header">
+          <h3 id="assign-dialog-title">Assign Session</h3>
+        </header>
+        <form id="assign-session-form" class="assign-dialog-body">
+          <div class="dialog-context-grid">
+            <div class="dialog-context-item">
+              <span>Current owner</span>
+              <strong>${escapeHtml(currentOwner)}</strong>
+            </div>
+            <div class="dialog-context-item">
+              <span>Routing</span>
+              <strong>${escapeHtml(selectedDepartment?.label || session?.departmentLabel || "Choose department")}</strong>
+            </div>
+          </div>
+          ${
+            state.assignmentOptions.error
+              ? `<div class="banner banner-warning">${escapeHtml(state.assignmentOptions.error)}</div>`
+              : ""
+          }
+          <label>
+            Department
+            <select id="assign-department-input" ${state.assignmentOptions.loading ? "disabled" : ""}>
+              <option value="">Select department</option>
+              ${departments
+                .map(
+                  (department) => `<option value="${escapeHtml(department.id)}" ${
+                    state.assignDialog.departmentId === department.id ? "selected" : ""
+                  }>${escapeHtml(department.label)}</option>`,
+                )
+                .join("")}
+            </select>
+          </label>
+          <label>
+            Support user
+            <select id="assign-user-input" ${state.assignmentOptions.loading ? "disabled" : ""}>
+              <option value="">Select user</option>
+              ${users
+                .map(
+                  (user) => `<option value="${escapeHtml(user.id)}" ${
+                    state.assignDialog.assignedToUserId === user.id ? "selected" : ""
+                  }>${escapeHtml(supportUserDisplayLabel(user))}${user.active ? "" : " (inactive)"}</option>`,
+                )
+                .join("")}
+            </select>
+          </label>
+          ${
+            !state.assignmentOptions.loading && !users.length
+              ? `<p class="dialog-help">No support users are available for this product, tenant, or department yet.</p>`
+              : ""
+          }
+          ${
+            selectedUser
+              ? `<p class="dialog-help">Assigning to <strong>${escapeHtml(selectedUser.name)}</strong>${
+                  selectedUser.departments.length
+                    ? ` in ${escapeHtml(selectedUser.departments.join(", "))}`
+                    : ""
+                }.</p>`
+              : eligibleUsers.length
+                ? `<p class="dialog-help">Choose one of ${eligibleUsers.length} active support users.</p>`
+                : ""
+          }
+          <label>
+            Note
+            <textarea id="assign-note-input" rows="3" placeholder="Context for the assignee">${escapeHtml(
+              state.assignDialog.note,
+            )}</textarea>
+          </label>
+          <label class="checkbox-row">
+            <input id="assign-notify-input" type="checkbox" ${state.assignDialog.notifyAssignee ? "checked" : ""} />
+            Notify assignee
+          </label>
+          <label class="checkbox-row">
+            <input id="assign-summary-input" type="checkbox" ${state.assignDialog.includeTranscriptSummary ? "checked" : ""} />
+            Include transcript summary
+          </label>
+          <footer class="confirm-dialog-actions">
+            <button id="assign-dialog-cancel" class="button button-quiet" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" ${
+              state.busyAction || state.assignmentOptions.loading || !state.assignDialog.assignedToUserId ? "disabled" : ""
+            }>Assign</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
+function renderTranscriptDialog() {
+  if (!state.transcriptDialog.open) return "";
+  return `
+    <div id="transcript-dialog-backdrop" class="confirm-overlay" role="presentation">
+      <section class="confirm-dialog assign-dialog" role="dialog" aria-modal="true" aria-labelledby="transcript-dialog-title">
+        <header class="confirm-dialog-header">
+          <h3 id="transcript-dialog-title">Send Transcript</h3>
+        </header>
+        <form id="transcript-form" class="assign-dialog-body">
+          <div class="dialog-context-grid">
+            <div class="dialog-context-item">
+              <span>Recipient</span>
+              <strong>${escapeHtml(state.transcriptDialog.to || "Add email")}</strong>
+            </div>
+            <div class="dialog-context-item">
+              <span>Safety</span>
+              <strong>Customer-safe only</strong>
+            </div>
+          </div>
+          <p class="dialog-help">
+            The backend should exclude internal notes, diagnostics, audit entries, and private routing metadata.
+          </p>
+          <label>
+            Contact email
+            <input
+              id="transcript-to-input"
+              type="email"
+              value="${escapeHtml(state.transcriptDialog.to)}"
+              placeholder="contact@example.com"
+            />
+          </label>
+          <label>
+            Subject
+            <input
+              id="transcript-subject-input"
+              type="text"
+              value="${escapeHtml(state.transcriptDialog.subject)}"
+              placeholder="Your conversation transcript"
+            />
+          </label>
+          <label class="checkbox-row">
+            <input id="transcript-ai-input" type="checkbox" ${state.transcriptDialog.includeAiMessages ? "checked" : ""} />
+            Include AI messages
+          </label>
+          <label class="checkbox-row">
+            <input id="transcript-agent-input" type="checkbox" ${state.transcriptDialog.includeAgentMessages ? "checked" : ""} />
+            Include agent messages
+          </label>
+          <label class="checkbox-row">
+            <input id="transcript-system-input" type="checkbox" ${state.transcriptDialog.includeSystemMessages ? "checked" : ""} />
+            Include system-visible messages
+          </label>
+          <footer class="confirm-dialog-actions">
+            <button id="transcript-dialog-cancel" class="button button-quiet" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" ${
+              state.busyAction || !state.transcriptDialog.to.trim() ? "disabled" : ""
+            }>Send Transcript</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
+function renderAdminPanel() {
+  if (!isSuperAdminRole() || !state.adminPanelOpen) return "";
+  const activeUsers = state.adminUsers.filter((user) => user.active).length;
+  const activeDepartments = state.adminDepartments.filter((department) => department.active).length;
+  const uniqueRoles = new Set(state.adminUsers.map((user) => user.role).filter(Boolean)).size;
+  const canCreateUsers = activeAdminDepartments().length > 0;
+  return `
+    <section class="admin-panel">
+      <header class="admin-panel-header">
+        <div>
+          <h3>Support Admin</h3>
+          <p>Manage support users, departments, and assignment routing for this console.</p>
+        </div>
+        <div class="admin-panel-actions">
+          <button
+            id="admin-user-create-button"
+            class="button button-primary"
+            type="button"
+            title="${canCreateUsers ? "Add support user" : "Create a department before adding users"}"
+            ${state.adminLoading || !canCreateUsers ? "disabled" : ""}
+          >Add User</button>
+          <button id="admin-department-create-button" class="button" type="button" ${state.adminLoading ? "disabled" : ""}>Add Department</button>
+          <button id="admin-refresh-button" class="button" type="button" ${state.adminLoading ? "disabled" : ""}>Refresh</button>
+        </div>
+      </header>
+      ${state.adminError ? `<div class="banner banner-warning">${escapeHtml(state.adminError)}</div>` : ""}
+      ${
+        !canCreateUsers
+          ? `<div class="banner banner-info">Create at least one department before adding support users.</div>`
+          : ""
+      }
+      <div class="admin-summary-grid">
+        <article class="admin-summary-card">
+          <span>Support users</span>
+          <strong>${escapeHtml(String(state.adminUsers.length))}</strong>
+          <p>${escapeHtml(String(activeUsers))} active</p>
+        </article>
+        <article class="admin-summary-card">
+          <span>Departments</span>
+          <strong>${escapeHtml(String(state.adminDepartments.length))}</strong>
+          <p>${escapeHtml(String(activeDepartments))} active</p>
+        </article>
+        <article class="admin-summary-card">
+          <span>Roles in use</span>
+          <strong>${escapeHtml(String(uniqueRoles || 0))}</strong>
+          <p>Current support staffing mix</p>
+        </article>
+      </div>
+      <div class="admin-grid">
+        <section>
+          <h4>Support Users</h4>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Departments</th><th>Products</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                ${
+                  state.adminUsers.length
+                    ? state.adminUsers
+                        .map(
+                          (user) => `<tr>
+                            <td>${escapeHtml(user.name)}</td>
+                            <td>${escapeHtml(user.email || "-")}</td>
+                            <td>${escapeHtml(user.phone || "-")}</td>
+                            <td>${escapeHtml(user.role)}</td>
+                            <td>${escapeHtml(user.departments.join(", ") || "-")}</td>
+                            <td>${escapeHtml(user.allowedProducts.join(", ") || "-")}</td>
+                            <td>${user.active ? "Active" : "Inactive"}</td>
+                            <td><button class="button button-compact" type="button" data-admin-user-edit="${escapeHtml(user.id)}">Edit</button></td>
+                          </tr>`,
+                        )
+                        .join("")
+                    : `<tr><td colspan="8">No support users loaded.</td></tr>`
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section>
+          <h4>Departments</h4>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr><th>ID</th><th>Department</th><th>Product</th><th>Defaults</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                ${
+                  state.adminDepartments.length
+                    ? state.adminDepartments
+                        .map(
+                          (department) => `<tr>
+                            <td><code>${escapeHtml(department.id)}</code></td>
+                            <td>${escapeHtml(department.label)}</td>
+                            <td>${escapeHtml(department.product || "-")}</td>
+                            <td>${escapeHtml(department.defaultAssigneeIds.join(", ") || "-")}</td>
+                            <td>${department.active ? "Active" : "Inactive"}</td>
+                            <td class="admin-row-actions">
+                              <button class="button button-compact" type="button" data-admin-department-edit="${escapeHtml(department.id)}">Edit</button>
+                              <button class="button button-compact button-danger" type="button" data-admin-department-delete="${escapeHtml(department.id)}">Delete</button>
+                            </td>
+                          </tr>`,
+                        )
+                        .join("")
+                    : `<tr><td colspan="6">No departments loaded.</td></tr>`
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminDialog() {
+  if (!state.adminDialog.open) return "";
+  const dialog = state.adminDialog;
+  const isUser = dialog.type === "user";
+  const title = `${dialog.mode === "edit" ? "Edit" : "Add"} ${isUser ? "Support User" : "Department"}`;
+  const products = state.productOptions.length ? state.productOptions : FALLBACK_PRODUCTS;
+  const departmentOptions = activeAdminDepartments();
+  const selectedDepartments = new Set(csvToList(dialog.departments));
+  const duplicateDepartmentId = !isUser && dialog.mode === "create" && departmentExists(dialog.id);
+  return `
+    <div id="admin-dialog-backdrop" class="confirm-overlay" role="presentation">
+      <section class="confirm-dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-dialog-title">
+        <header class="confirm-dialog-header">
+          <h3 id="admin-dialog-title">${escapeHtml(title)}</h3>
+        </header>
+        <form id="admin-dialog-form" class="assign-dialog-body">
+          ${
+            isUser
+              ? `
+                <label>
+                  Name
+                  <input id="admin-user-name-input" value="${escapeHtml(dialog.name)}" placeholder="Support user name" />
+                </label>
+                <label>
+                  Email
+                  <input id="admin-user-email-input" type="email" value="${escapeHtml(dialog.email)}" placeholder="user@example.com" />
+                </label>
+                <label>
+                  Phone
+                  <input id="admin-user-phone-input" type="tel" inputmode="tel" value="${escapeHtml(dialog.phone)}" placeholder="(555) 555-5555" />
+                </label>
+                <label>
+                  Role
+                  <select id="admin-user-role-input">
+                    ${["support_agent", "sales_agent", "billing_agent", "admin", "viewer"]
+                      .map(
+                        (role) =>
+                          `<option value="${role}" ${dialog.role === role ? "selected" : ""}>${escapeHtml(role)}</option>`,
+                      )
+                      .join("")}
+                  </select>
+                </label>
+                <label>
+                  Departments
+                  <select id="admin-user-departments-input" multiple size="${Math.min(Math.max(departmentOptions.length, 3), 6)}">
+                    ${departmentOptions
+                      .map(
+                        (department) => `<option value="${escapeHtml(department.id)}" ${
+                          selectedDepartments.has(department.id) ? "selected" : ""
+                        }>${escapeHtml(department.label)} (${escapeHtml(department.id)})</option>`,
+                      )
+                      .join("")}
+                  </select>
+                </label>
+                <label>
+                  Allowed products
+                  <input id="admin-user-products-input" value="${escapeHtml(dialog.allowedProducts)}" placeholder="merxus" />
+                </label>
+                <label>
+                  Allowed tenants/customers
+                  <input id="admin-user-tenants-input" value="${escapeHtml(dialog.allowedTenantIds)}" placeholder="default, tenant_a" />
+                </label>
+                <label class="checkbox-row">
+                  <input id="admin-user-active-input" type="checkbox" ${dialog.active ? "checked" : ""} />
+                  Active
+                </label>
+              `
+              : `
+                <label>
+                  Department id
+                  <input id="admin-department-id-input" value="${escapeHtml(dialog.id)}" placeholder="sales" ${
+                    dialog.mode === "edit" ? "disabled" : ""
+                  } />
+                  ${duplicateDepartmentId ? `<span class="field-warning">This department id already exists.</span>` : ""}
+                </label>
+                <label>
+                  Label
+                  <input id="admin-department-label-input" value="${escapeHtml(dialog.label)}" placeholder="Sales" />
+                </label>
+                <label>
+                  Product
+                  <select id="admin-department-product-input">
+                    ${products
+                      .map(
+                        (product) => `<option value="${escapeHtml(product.id)}" ${
+                          dialog.product === product.id ? "selected" : ""
+                        }>${escapeHtml(product.label)}</option>`,
+                      )
+                      .join("")}
+                  </select>
+                </label>
+                <label>
+                  Default assignees
+                  <input id="admin-department-defaults-input" value="${escapeHtml(dialog.defaultAssigneeIds)}" placeholder="user_123, user_456" />
+                </label>
+                <label class="checkbox-row">
+                  <input id="admin-department-active-input" type="checkbox" ${dialog.active ? "checked" : ""} />
+                  Active
+                </label>
+              `
+          }
+          <footer class="confirm-dialog-actions">
+            <button id="admin-dialog-cancel" class="button button-quiet" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" ${
+              state.busyAction || duplicateDepartmentId ? "disabled" : ""
+            }>Save</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
 function render() {
+  captureSessionListScroll();
+  captureDetailPanelScroll();
+  const detailFocusState = captureDetailFormFocusState();
+
   if (!state.isAuthenticated || state.authBlocked) {
     renderAuthScreen();
     return;
@@ -1644,7 +3441,7 @@ function render() {
   const products = state.productOptions.length ? state.productOptions : FALLBACK_PRODUCTS;
 
   app.innerHTML = `
-    <div class="console-root">
+    <div class="console-root ${state.loadingSession ? "is-loading-session" : ""}">
       <header class="topbar">
         <div>
           <h1>Workside Support Console</h1>
@@ -1654,7 +3451,7 @@ function render() {
           <span class="${realtimeStatusClass(state.realtimeStatus)}"></span>
           <span>${realtimeStatusLabel(state.realtimeStatus)}</span>
           <span class="queue-pill">Queue ${transferQueueCount}</span>
-          <span class="queue-pill">${escapeHtml(state.userRole || "role:unknown")}</span>
+          <span class="queue-pill">${escapeHtml(roleBadgeLabel())}</span>
         </div>
         <form id="settings-form" class="settings-form">
           <label>
@@ -1718,6 +3515,13 @@ function render() {
           <button id="diagnostics-toggle-button" class="button" type="button">
             ${state.showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics"}
           </button>
+          ${
+            isSuperAdminRole()
+              ? `<button id="admin-toggle-button" class="button" type="button">${
+                  state.adminPanelOpen ? "Hide Admin" : "Admin"
+                }</button>`
+              : ""
+          }
           <button id="logout-button" class="button" type="button">Logout</button>
           <button id="refresh-button" class="button" type="button">Refresh</button>
         </form>
@@ -1756,14 +3560,169 @@ function render() {
         </aside>
         <section class="detail-panel">${renderDetailPanel()}</section>
       </main>
+      ${renderAdminPanel()}
       ${state.showDiagnostics ? renderDiagnosticsPanel() : ""}
     </div>
+    ${renderConfirmDialog()}
+    ${renderAssignDialog()}
+    ${renderTranscriptDialog()}
+    ${renderAdminDialog()}
   `;
 
   bindEvents();
+  restoreSessionListScroll();
+  scrollSelectedSessionIntoView();
+  restoreDetailPanelScroll();
+  restoreDetailFormFocusState(detailFocusState);
 }
 
 function bindEvents() {
+  const confirmDialogCancelButton = document.querySelector("#confirm-dialog-cancel");
+  if (confirmDialogCancelButton) {
+    confirmDialogCancelButton.addEventListener("click", () => {
+      closeConfirmDialog(false);
+    });
+  }
+
+  const confirmDialogConfirmButton = document.querySelector("#confirm-dialog-confirm");
+  if (confirmDialogConfirmButton) {
+    confirmDialogConfirmButton.addEventListener("click", () => {
+      closeConfirmDialog(true);
+    });
+  }
+
+  const confirmDialogBackdrop = document.querySelector("#confirm-dialog-backdrop");
+  if (confirmDialogBackdrop) {
+    confirmDialogBackdrop.addEventListener("click", (event) => {
+      if (event.target === confirmDialogBackdrop) {
+        closeConfirmDialog(false);
+      }
+    });
+  }
+
+  if (state.confirmDialog?.open && confirmDialogConfirmButton) {
+    setTimeout(() => {
+      confirmDialogConfirmButton.focus();
+    }, 0);
+  }
+
+  const assignDialogCancelButton = document.querySelector("#assign-dialog-cancel");
+  if (assignDialogCancelButton) {
+    assignDialogCancelButton.addEventListener("click", handleCloseAssignDialog);
+  }
+
+  const assignDialogBackdrop = document.querySelector("#assign-dialog-backdrop");
+  if (assignDialogBackdrop) {
+    assignDialogBackdrop.addEventListener("click", (event) => {
+      if (event.target === assignDialogBackdrop) {
+        handleCloseAssignDialog();
+      }
+    });
+  }
+
+  const assignDepartmentInput = document.querySelector("#assign-department-input");
+  if (assignDepartmentInput) {
+    assignDepartmentInput.addEventListener("change", async (event) => {
+      state.assignDialog.departmentId = String(event.target.value ?? "").trim();
+      state.assignDialog.assignedToUserId = "";
+      await loadAssignmentOptions(getSelectedSessionContext());
+    });
+  }
+
+  const assignUserInput = document.querySelector("#assign-user-input");
+  if (assignUserInput) {
+    assignUserInput.addEventListener("change", (event) => {
+      state.assignDialog.assignedToUserId = String(event.target.value ?? "").trim();
+      render();
+    });
+  }
+
+  const assignNoteInput = document.querySelector("#assign-note-input");
+  if (assignNoteInput) {
+    assignNoteInput.addEventListener("input", (event) => {
+      state.assignDialog.note = event.target.value;
+    });
+  }
+
+  const assignNotifyInput = document.querySelector("#assign-notify-input");
+  if (assignNotifyInput) {
+    assignNotifyInput.addEventListener("change", (event) => {
+      state.assignDialog.notifyAssignee = Boolean(event.target.checked);
+    });
+  }
+
+  const assignSummaryInput = document.querySelector("#assign-summary-input");
+  if (assignSummaryInput) {
+    assignSummaryInput.addEventListener("change", (event) => {
+      state.assignDialog.includeTranscriptSummary = Boolean(event.target.checked);
+    });
+  }
+
+  const assignSessionForm = document.querySelector("#assign-session-form");
+  if (assignSessionForm) {
+    assignSessionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await handleAssignSession();
+    });
+  }
+
+  const transcriptDialogCancelButton = document.querySelector("#transcript-dialog-cancel");
+  if (transcriptDialogCancelButton) {
+    transcriptDialogCancelButton.addEventListener("click", handleCloseTranscriptDialog);
+  }
+
+  const transcriptDialogBackdrop = document.querySelector("#transcript-dialog-backdrop");
+  if (transcriptDialogBackdrop) {
+    transcriptDialogBackdrop.addEventListener("click", (event) => {
+      if (event.target === transcriptDialogBackdrop) {
+        handleCloseTranscriptDialog();
+      }
+    });
+  }
+
+  const transcriptToInput = document.querySelector("#transcript-to-input");
+  if (transcriptToInput) {
+    transcriptToInput.addEventListener("input", (event) => {
+      state.transcriptDialog.to = event.target.value;
+    });
+  }
+
+  const transcriptSubjectInput = document.querySelector("#transcript-subject-input");
+  if (transcriptSubjectInput) {
+    transcriptSubjectInput.addEventListener("input", (event) => {
+      state.transcriptDialog.subject = event.target.value;
+    });
+  }
+
+  const transcriptAiInput = document.querySelector("#transcript-ai-input");
+  if (transcriptAiInput) {
+    transcriptAiInput.addEventListener("change", (event) => {
+      state.transcriptDialog.includeAiMessages = Boolean(event.target.checked);
+    });
+  }
+
+  const transcriptAgentInput = document.querySelector("#transcript-agent-input");
+  if (transcriptAgentInput) {
+    transcriptAgentInput.addEventListener("change", (event) => {
+      state.transcriptDialog.includeAgentMessages = Boolean(event.target.checked);
+    });
+  }
+
+  const transcriptSystemInput = document.querySelector("#transcript-system-input");
+  if (transcriptSystemInput) {
+    transcriptSystemInput.addEventListener("change", (event) => {
+      state.transcriptDialog.includeSystemMessages = Boolean(event.target.checked);
+    });
+  }
+
+  const transcriptForm = document.querySelector("#transcript-form");
+  if (transcriptForm) {
+    transcriptForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await handleSendTranscript();
+    });
+  }
+
   const searchInput = document.querySelector("#search-input");
   if (searchInput) {
     searchInput.addEventListener("input", (event) => {
@@ -1838,6 +3797,10 @@ function bindEvents() {
 
   const agentInput = document.querySelector("#agent-input");
   if (agentInput) {
+    agentInput.addEventListener("input", (event) => {
+      state.agentName = event.target.value;
+      localStorage.setItem(AGENT_STORAGE_KEY, state.agentName.trim());
+    });
     agentInput.addEventListener("change", (event) => {
       state.agentName = event.target.value.trim();
       localStorage.setItem(AGENT_STORAGE_KEY, state.agentName);
@@ -1867,6 +3830,110 @@ function bindEvents() {
     });
   }
 
+  const adminToggleButton = document.querySelector("#admin-toggle-button");
+  if (adminToggleButton) {
+    adminToggleButton.addEventListener("click", async () => {
+      state.adminPanelOpen = !state.adminPanelOpen;
+      render();
+      if (state.adminPanelOpen && state.adminUsers.length === 0 && state.adminDepartments.length === 0) {
+        await loadAdminPanelData();
+      }
+    });
+  }
+
+  const adminRefreshButton = document.querySelector("#admin-refresh-button");
+  if (adminRefreshButton) {
+    adminRefreshButton.addEventListener("click", loadAdminPanelData);
+  }
+
+  const adminUserCreateButton = document.querySelector("#admin-user-create-button");
+  if (adminUserCreateButton) {
+    adminUserCreateButton.addEventListener("click", () => openAdminUserDialog());
+  }
+
+  const adminDepartmentCreateButton = document.querySelector("#admin-department-create-button");
+  if (adminDepartmentCreateButton) {
+    adminDepartmentCreateButton.addEventListener("click", () => openAdminDepartmentDialog());
+  }
+
+  document.querySelectorAll("[data-admin-user-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const user = state.adminUsers.find((item) => item.id === button.getAttribute("data-admin-user-edit"));
+      if (user) openAdminUserDialog(user);
+    });
+  });
+
+  document.querySelectorAll("[data-admin-department-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const department = state.adminDepartments.find(
+        (item) => item.id === button.getAttribute("data-admin-department-edit"),
+      );
+      if (department) openAdminDepartmentDialog(department);
+    });
+  });
+
+  document.querySelectorAll("[data-admin-department-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await handleDeleteDepartment(button.getAttribute("data-admin-department-delete"));
+    });
+  });
+
+  const adminDialogCancelButton = document.querySelector("#admin-dialog-cancel");
+  if (adminDialogCancelButton) {
+    adminDialogCancelButton.addEventListener("click", closeAdminDialog);
+  }
+
+  const adminDialogBackdrop = document.querySelector("#admin-dialog-backdrop");
+  if (adminDialogBackdrop) {
+    adminDialogBackdrop.addEventListener("click", (event) => {
+      if (event.target === adminDialogBackdrop) {
+        closeAdminDialog();
+      }
+    });
+  }
+
+  const adminDialogForm = document.querySelector("#admin-dialog-form");
+  if (adminDialogForm) {
+    adminDialogForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await handleSaveAdminDialog();
+    });
+  }
+
+  const bindAdminDialogInput = (selector, key, isCheckbox = false) => {
+    const input = document.querySelector(selector);
+    if (!input) return;
+    const eventName = isCheckbox || input.tagName === "SELECT" ? "change" : "input";
+    input.addEventListener(eventName, (event) => {
+      state.adminDialog[key] = isCheckbox ? Boolean(event.target.checked) : event.target.value;
+      if (key === "id" && state.adminDialog.type === "department" && state.adminDialog.mode === "create") {
+        render();
+      }
+    });
+  };
+  bindAdminDialogInput("#admin-user-name-input", "name");
+  bindAdminDialogInput("#admin-user-email-input", "email");
+  bindAdminDialogInput("#admin-user-phone-input", "phone");
+  bindAdminDialogInput("#admin-user-role-input", "role");
+  bindAdminDialogInput("#admin-user-products-input", "allowedProducts");
+  bindAdminDialogInput("#admin-user-tenants-input", "allowedTenantIds");
+  bindAdminDialogInput("#admin-user-active-input", "active", true);
+  bindAdminDialogInput("#admin-department-id-input", "id");
+  bindAdminDialogInput("#admin-department-label-input", "label");
+  bindAdminDialogInput("#admin-department-product-input", "product");
+  bindAdminDialogInput("#admin-department-defaults-input", "defaultAssigneeIds");
+  bindAdminDialogInput("#admin-department-active-input", "active", true);
+
+  const adminUserDepartmentsInput = document.querySelector("#admin-user-departments-input");
+  if (adminUserDepartmentsInput) {
+    adminUserDepartmentsInput.addEventListener("change", (event) => {
+      state.adminDialog.departments = [...event.target.selectedOptions]
+        .map((option) => option.value)
+        .filter(Boolean)
+        .join(", ");
+    });
+  }
+
   const logoutButton = document.querySelector("#logout-button");
   if (logoutButton) {
     logoutButton.addEventListener("click", async () => {
@@ -1877,6 +3944,16 @@ function bindEvents() {
   const takeoverButton = document.querySelector("#takeover-button");
   if (takeoverButton) {
     takeoverButton.addEventListener("click", handleTakeOver);
+  }
+
+  const assignSessionButton = document.querySelector("#assign-session-button");
+  if (assignSessionButton) {
+    assignSessionButton.addEventListener("click", handleOpenAssignDialog);
+  }
+
+  const sendTranscriptButton = document.querySelector("#send-transcript-button");
+  if (sendTranscriptButton) {
+    sendTranscriptButton.addEventListener("click", handleOpenTranscriptDialog);
   }
 
   const transferReasonInput = document.querySelector("#transfer-reason-input");
@@ -1913,6 +3990,20 @@ function bindEvents() {
     closeNoFollowUpButton.addEventListener("click", handleCloseNoFollowUp);
   }
 
+  const leadIntakePanel = document.querySelector("#lead-intake-panel");
+  if (leadIntakePanel) {
+    leadIntakePanel.addEventListener("toggle", () => {
+      setIntakePanelOpenState(state.selectedSessionId, "leadOpen", leadIntakePanel.open);
+    });
+  }
+
+  const inquiryIntakePanel = document.querySelector("#inquiry-intake-panel");
+  if (inquiryIntakePanel) {
+    inquiryIntakePanel.addEventListener("toggle", () => {
+      setIntakePanelOpenState(state.selectedSessionId, "inquiryOpen", inquiryIntakePanel.open);
+    });
+  }
+
   const replyInput = document.querySelector("#reply-input");
   if (replyInput) {
     replyInput.addEventListener("input", (event) => {
@@ -1947,7 +4038,9 @@ function bindEvents() {
   const leadPhoneInput = document.querySelector("#lead-phone-input");
   if (leadPhoneInput) {
     leadPhoneInput.addEventListener("input", (event) => {
-      state.leadDraft.phone = event.target.value;
+      const formattedPhone = formatPhoneInput(event.target.value);
+      event.target.value = formattedPhone;
+      state.leadDraft.phone = formattedPhone;
       state.leadDirty = true;
     });
   }
@@ -2023,5 +4116,8 @@ async function bootstrap() {
 window.addEventListener("beforeunload", () => {
   stopRealtimeAndPolling();
 });
+
+window.addEventListener("pointerdown", unlockNotificationSound, { once: true });
+window.addEventListener("keydown", unlockNotificationSound, { once: true });
 
 bootstrap();

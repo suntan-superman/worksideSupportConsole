@@ -67,6 +67,78 @@ function pickFirst(...values) {
   return undefined;
 }
 
+function splitLeadName(fullName) {
+  const clean = String(fullName ?? "").trim();
+  if (!clean) {
+    return { firstName: "", lastName: "" };
+  }
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: "" };
+  }
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+function normalizeAssignmentEntry(entry) {
+  const item = entry ?? {};
+  const assignedToRaw = pickFirst(item.assignedTo, item.assignee, item.user);
+  const notificationRaw = item.notification && typeof item.notification === "object" ? item.notification : {};
+  const assignedToUserId = pickFirst(
+    item.assignedToUserId,
+    item.assignedUserId,
+    item.assignedToId,
+    assignedToRaw?.id,
+    assignedToRaw?.uid,
+    assignedToRaw?.email,
+  );
+  const assignedToName = pickFirst(
+    item.assignedToName,
+    item.assignedToUserName,
+    assignedToRaw?.name,
+    assignedToRaw?.displayName,
+    assignedToRaw?.email,
+  );
+  const assignedToEmail = pickFirst(item.assignedToEmail, item.assignedToUserEmail, assignedToRaw?.email);
+  const departmentId = pickFirst(item.departmentId, item.department, item.departmentKey);
+  const departmentLabel = pickFirst(item.departmentLabel, item.departmentName, departmentId);
+  const assignedAt = pickFirst(item.assignedAt, item.createdAt, item.at, item.timestamp);
+
+  return {
+    id: String(pickFirst(item.id, item._id, `${assignedAt ?? "assignment"}-${assignedToUserId ?? "unknown"}`)),
+    departmentId: departmentId ? String(departmentId) : "",
+    departmentLabel: departmentLabel ? String(departmentLabel) : "",
+    assignedToUserId: assignedToUserId ? String(assignedToUserId) : "",
+    assignedToName: assignedToName ? String(assignedToName) : "",
+    assignedToEmail: assignedToEmail ? String(assignedToEmail) : "",
+    assignedBy: String(pickFirst(item.assignedByName, item.assignedBy, item.createdBy, "")),
+    note: String(pickFirst(item.note, item.assignmentNote, item.message, "")),
+    assignedAt: assignedAt ? String(assignedAt) : "",
+    notificationAttempted: Boolean(pickFirst(notificationRaw.attempted, item.notificationAttempted, false)),
+    notificationSent: Boolean(pickFirst(notificationRaw.sent, item.notificationSent, false)),
+  };
+}
+
+function normalizeAssignmentHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => normalizeAssignmentEntry(item)).filter((item) => item.assignedToUserId || item.assignedAt);
+}
+
+function normalizeTranscriptReceipt(value) {
+  const item = value && typeof value === "object" ? value : {};
+  const sentAt = pickFirst(item.sentAt, item.createdAt, item.at, item.timestamp);
+  const to = pickFirst(item.to, item.email, item.recipient, item.lastTranscriptSentTo);
+  if (!sentAt && !to) return null;
+  return {
+    sentAt: sentAt ? String(sentAt) : "",
+    to: to ? String(to) : "",
+    provider: String(pickFirst(item.provider, "")),
+    messageId: String(pickFirst(item.messageId, item.id, "")),
+  };
+}
+
 function normalizeSession(rawSession) {
   const session = rawSession ?? {};
   const id = pickFirst(session.id, session._id, session.sessionId);
@@ -74,18 +146,115 @@ function normalizeSession(rawSession) {
     pickFirst(session.status, session.sessionStatus, session.state, "active_ai"),
   );
 
-  const leadName = pickFirst(session.leadName, session.name, session.visitorName, session.lead?.name);
-  const leadEmail = pickFirst(session.leadEmail, session.email, session.visitorEmail, session.lead?.email);
-  const leadPhone = pickFirst(session.leadPhone, session.phone, session.visitorPhone, session.lead?.phone);
-  const leadCompany = pickFirst(session.leadCompany, session.company, session.visitorCompany, session.lead?.company);
+  const leadComposedName = [session.lead?.firstName, session.lead?.lastName]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const leadSnakeComposedName = [session.lead?.first_name, session.lead?.last_name]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const leadName = pickFirst(
+    session.leadName,
+    session.lead_name,
+    session.lead?.name,
+    session.lead?.fullName,
+    session.lead?.full_name,
+    session.lead?.displayName,
+    session.lead?.display_name,
+    session.lead?.contactName,
+    session.lead?.contact_name,
+    leadComposedName,
+    leadSnakeComposedName,
+    session.contact?.name,
+    session.contact?.fullName,
+    session.contact?.full_name,
+    session.visitor?.name,
+    session.visitor?.fullName,
+    session.customer?.contactName,
+    session.contactName,
+    session.customerContactName,
+    session.visitorName,
+    session.name,
+  );
+  const leadEmail = pickFirst(
+    session.leadEmail,
+    session.lead_email,
+    session.lead?.email,
+    session.lead?.email_address,
+    session.lead?.emailAddress,
+    session.lead?.emailAddress,
+    session.lead?.primaryEmail,
+    session.contact?.emailAddress,
+    session.contact?.email_address,
+    session.contact?.email,
+    session.visitor?.email,
+    session.customer?.email,
+    session.visitorEmail,
+    session.customerEmail,
+    session.email,
+  );
+  const leadPhone = pickFirst(
+    session.leadPhone,
+    session.lead_phone,
+    session.lead?.phone,
+    session.lead?.phone_number,
+    session.lead?.telephone,
+    session.lead?.phoneNumber,
+    session.lead?.mobile,
+    session.contact?.phoneNumber,
+    session.contact?.phone_number,
+    session.contact?.phone,
+    session.visitor?.phone,
+    session.customer?.phone,
+    session.visitorPhone,
+    session.customerPhone,
+    session.phone,
+  );
+  const leadCompany = pickFirst(
+    session.leadCompany,
+    session.lead_company,
+    session.company,
+    session.visitorCompany,
+    session.organizationName,
+    session.lead?.company,
+    session.lead?.organization,
+  );
   const inquirySummary = pickFirst(
     session.inquiry?.messageSummary,
+    session.inquiry?.summary,
+    session.inquiry?.rawUserDescription,
+    session.inquiry?.details?.messageSummary,
+    session.inquiry?.details?.summary,
+    session.inquiry?.details?.rawUserDescription,
+    session.support?.inquiry?.latest?.summary,
+    session.support?.inquiry?.latest?.messageSummary,
+    session.support?.inquiry?.latest?.rawUserDescription,
+    session.support?.inquiry?.latest?.details?.messageSummary,
+    session.support?.inquiry?.latest?.details?.summary,
+    session.support?.inquiry?.latest?.details?.rawUserDescription,
     session.inquiryMessageSummary,
     session.inquirySummary,
     session.summary,
   );
-  const inquiryUrgency = pickFirst(session.inquiry?.urgency, session.inquiryUrgency, "medium");
-  const inquiryIntent = pickFirst(session.inquiry?.intent, session.inquiryIntent, "general");
+  const inquiryUrgency = pickFirst(
+    session.inquiry?.urgency,
+    session.inquiry?.details?.urgency,
+    session.support?.inquiry?.latest?.urgency,
+    session.support?.inquiry?.latest?.details?.urgency,
+    session.inquiryUrgency,
+    "medium",
+  );
+  const inquiryIntent = pickFirst(
+    session.inquiry?.intent,
+    session.inquiry?.details?.intent,
+    session.support?.inquiry?.latest?.intent,
+    session.support?.inquiry?.latest?.details?.intent,
+    session.inquiryIntent,
+    "general",
+  );
   const escalationReason = pickFirst(
     session.escalationReason,
     session.reason,
@@ -119,6 +288,62 @@ function normalizeSession(rawSession) {
     session.customer?.name,
   );
   const sourceApp = pickFirst(session.sourceApp, session.source, session.channel, "website");
+  const allowAnonymousNoFollowUpClose = pickFirst(
+    session.allowAnonymousNoFollowUpClose,
+    session.allowAnonymousCloseNoFollowUp,
+    session.allowAnonymousClose,
+    session.permissions?.allowAnonymousNoFollowUpClose,
+    session.authorization?.allowAnonymousNoFollowUpClose,
+    session.tenantConfig?.allowAnonymousNoFollowUpClose,
+    session.chatConfig?.allowAnonymousNoFollowUpClose,
+    session.features?.allowAnonymousNoFollowUpClose,
+  );
+  const assignedToRaw = pickFirst(session.assignedTo, session.support?.assignedTo, session.assignment?.assignedTo);
+  const assignedToUserId = pickFirst(
+    session.assignedToUserId,
+    session.assignedUserId,
+    session.assignedToId,
+    assignedToRaw?.uid,
+    assignedToRaw?.id,
+    assignedToRaw?.email,
+  );
+  const assignedToName = pickFirst(
+    session.assignedToName,
+    session.assignedToUserName,
+    assignedToRaw?.name,
+    assignedToRaw?.displayName,
+    assignedToRaw?.email,
+  );
+  const assignedToEmail = pickFirst(
+    session.assignedToEmail,
+    session.assignedToUserEmail,
+    assignedToRaw?.email,
+  );
+  const departmentId = pickFirst(session.departmentId, session.support?.departmentId, session.assignment?.departmentId);
+  const departmentLabel = pickFirst(
+    session.departmentLabel,
+    session.support?.departmentLabel,
+    session.assignment?.departmentLabel,
+    departmentId,
+  );
+  const assignmentHistory = normalizeAssignmentHistory(
+    pickFirst(session.assignmentHistory, session.support?.assignmentHistory, session.assignment?.history, []),
+  );
+  const latestAssignment = assignmentHistory[assignmentHistory.length - 1];
+  const transcriptReceipt = normalizeTranscriptReceipt(
+    pickFirst(
+      session.transcriptEmail,
+      session.lastTranscript,
+      session.transcript?.lastSent,
+      session.support?.transcriptEmail,
+      session.support?.lastTranscript,
+      session.support?.lastTranscriptEmail,
+      {
+        sentAt: session.support?.lastTranscriptSentAt ?? session.lastTranscriptSentAt,
+        to: session.support?.lastTranscriptSentTo ?? session.lastTranscriptSentTo,
+      },
+    ),
+  );
 
   return {
     id: id ? String(id) : undefined,
@@ -129,7 +354,17 @@ function normalizeSession(rawSession) {
     source: pickFirst(session.source, sourceApp, "website"),
     sourceApp: String(sourceApp),
     productKey,
-    assignedToUserId: pickFirst(session.assignedToUserId, session.assignedUserId, session.assignedTo),
+    assignedToUserId: assignedToUserId ? String(assignedToUserId) : "",
+    assignedToName: assignedToName ? String(assignedToName) : "",
+    assignedToEmail: assignedToEmail ? String(assignedToEmail) : "",
+    departmentId: departmentId ? String(departmentId) : "",
+    departmentLabel: departmentLabel ? String(departmentLabel) : "",
+    assignmentHistory,
+    latestAssignment: latestAssignment ?? null,
+    lastTranscriptSentAt: transcriptReceipt?.sentAt ?? "",
+    lastTranscriptSentTo: transcriptReceipt?.to ?? "",
+    lastTranscriptProvider: transcriptReceipt?.provider ?? "",
+    lastTranscriptMessageId: transcriptReceipt?.messageId ?? "",
     leadName,
     leadEmail,
     leadPhone,
@@ -141,10 +376,25 @@ function normalizeSession(rawSession) {
       Boolean(leadEmail) ||
       Boolean(leadPhone),
     inquiryCaptured: Boolean(
-      pickFirst(session.inquiryCaptured, session.hasInquiry, session.inquiryId, session.inquiry?.id, session.inquiry?.captured),
+      pickFirst(
+        session.inquiryCaptured,
+        session.hasInquiry,
+        session.inquiryId,
+        session.inquiry?.id,
+        session.inquiry?.captured,
+        session.support?.inquiry?.captured,
+        session.support?.inquiry?.latest,
+      ),
     ),
     requiresInquiryCapture: Boolean(
-      pickFirst(session.requiresInquiryCapture, session.afterHours, session.offlineFlow, session.inquiry?.required),
+      pickFirst(
+        session.requiresInquiryCapture,
+        session.inquiryRequired,
+        session.afterHours,
+        session.offlineFlow,
+        session.inquiry?.required,
+        session.support?.inquiry?.required,
+      ),
     ),
     inquirySummary: inquirySummary ? String(inquirySummary) : "",
     inquiryUrgency: String(inquiryUrgency),
@@ -153,6 +403,8 @@ function normalizeSession(rawSession) {
     transferRequested: Boolean(
       pickFirst(session.transferRequested, session.needsHuman, session.escalated, session.transfer?.requested),
     ),
+    allowAnonymousNoFollowUpClose:
+      typeof allowAnonymousNoFollowUpClose === "boolean" ? allowAnonymousNoFollowUpClose : null,
     lastMessagePreview: String(lastMessagePreview ?? ""),
     messageCount: Number.isFinite(messageCount) ? messageCount : 0,
     createdAt: pickFirst(session.createdAt, session.created_at, new Date().toISOString()),
@@ -191,6 +443,40 @@ function normalizeSupportTenant(entry) {
   };
 }
 
+function normalizeSupportUser(entry) {
+  const item = entry ?? {};
+  const id = pickFirst(item.id, item.uid, item.userId, item.email);
+  if (!id) return null;
+  return {
+    id: String(id),
+    name: String(pickFirst(item.name, item.displayName, item.email, id)),
+    email: String(pickFirst(item.email, "")),
+    phone: String(pickFirst(item.phone, item.phoneNumber, item.smsPhone, item.mobile, "")),
+    role: String(pickFirst(item.role, "support_agent")),
+    departments: Array.isArray(item.departments) ? item.departments.map(String) : [],
+    allowedProducts: Array.isArray(item.allowedProducts) ? item.allowedProducts.map(String) : [],
+    allowedTenantIds: Array.isArray(item.allowedTenantIds) ? item.allowedTenantIds.map(String) : [],
+    active: item.active !== false,
+  };
+}
+
+function normalizeSupportDepartment(entry) {
+  const item = entry ?? {};
+  const id = pickFirst(item.id, item.departmentId, item.key, item.slug);
+  if (!id) return null;
+  return {
+    id: String(id),
+    label: String(pickFirst(item.label, item.name, id)),
+    product: String(pickFirst(item.product, item.productKey, "")),
+    active: item.active !== false,
+    defaultAssigneeIds: Array.isArray(item.defaultAssigneeIds)
+      ? item.defaultAssigneeIds.map(String)
+      : Array.isArray(item.defaultAssignees)
+        ? item.defaultAssignees.map(String)
+        : [],
+  };
+}
+
 function normalizeSupportCollection(payload) {
   const collection = pickFirst(
     payload?.items,
@@ -204,6 +490,18 @@ function normalizeSupportCollection(payload) {
     [],
   );
   return Array.isArray(collection) ? collection : [];
+}
+
+function normalizeSupportUsers(payload) {
+  return normalizeSupportCollection(payload)
+    .map((item) => normalizeSupportUser(item))
+    .filter(Boolean);
+}
+
+function normalizeSupportDepartments(payload) {
+  return normalizeSupportCollection(payload)
+    .map((item) => normalizeSupportDepartment(item))
+    .filter(Boolean);
 }
 
 function normalizeMessage(rawMessage, fallbackTenantId, fallbackSessionId) {
@@ -225,15 +523,67 @@ function normalizeMessage(rawMessage, fallbackTenantId, fallbackSessionId) {
   };
 }
 
+function normalizeActionMessage(rawAction, fallbackTenantId, fallbackSessionId) {
+  const action = rawAction ?? {};
+  const actionType = String(pickFirst(action.action, action.type, action.eventType, "")).toLowerCase();
+  const data = action.data && typeof action.data === "object" ? action.data : {};
+  const payload = action.payload && typeof action.payload === "object" ? action.payload : {};
+  const result = action.result && typeof action.result === "object" ? action.result : {};
+  const body = pickFirst(
+    action.message,
+    action.text,
+    action.body,
+    data.message,
+    data.text,
+    data.reply,
+    payload.message,
+    payload.text,
+    result.message,
+    "",
+  );
+  if (!body) return null;
+
+  let sender = "system";
+  if (actionType === "reply" || actionType === "support.reply" || actionType === "agent_reply_sent") {
+    sender = "agent";
+  }
+  if (actionType === "visitor" || actionType === "message.visitor") {
+    sender = "visitor";
+  }
+  if (actionType === "ai" || actionType === "assistant") {
+    sender = "ai";
+  }
+
+  return {
+    id: String(pickFirst(action.id, action._id, `action-${crypto.randomUUID()}`)),
+    sessionId: pickFirst(action.sessionId, action.session_id, fallbackSessionId),
+    tenantId: pickFirst(action.tenantId, action.tenant_id, fallbackTenantId),
+    sender,
+    body: String(body),
+    createdAt: pickFirst(action.createdAt, action.created_at, action.at, new Date().toISOString()),
+  };
+}
+
+function normalizeActionMessages(rawActions, fallbackTenantId, fallbackSessionId) {
+  if (!Array.isArray(rawActions)) return [];
+  return rawActions
+    .map((item) => normalizeActionMessage(item, fallbackTenantId, fallbackSessionId))
+    .filter(Boolean);
+}
+
 function normalizeSessionAndMessages(payload) {
   const root = payload ?? {};
   const sessionRaw = pickFirst(root.session, root.data?.session, root.item, root);
   const messagesRaw = pickFirst(root.messages, root.data?.messages, sessionRaw?.messages, []);
+  const actionsRaw = pickFirst(root.actions, root.data?.actions, sessionRaw?.actions, sessionRaw?.supportActions, []);
 
   const session = normalizeSession(sessionRaw);
-  const messages = (Array.isArray(messagesRaw) ? messagesRaw : []).map((item) =>
-    normalizeMessage(item, session.tenantId, session.id),
-  );
+  const messages = [
+    ...(Array.isArray(messagesRaw) ? messagesRaw : []).map((item) =>
+      normalizeMessage(item, session.tenantId, session.id),
+    ),
+    ...normalizeActionMessages(actionsRaw, session.tenantId, session.id),
+  ];
 
   messages.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
@@ -341,6 +691,101 @@ export async function listSupportTenants({ product } = {}) {
     .filter(Boolean);
 }
 
+export async function listSupportUsers({ product, tenantId, departmentId, admin = false } = {}) {
+  const payload = await requestSupport(
+    admin ? "/support/admin/users" : "/support/users",
+    {
+      method: "GET",
+      query: {
+        product,
+        tenantId,
+        departmentId,
+      },
+    },
+    admin ? "list_admin_support_users" : "list_support_users",
+  );
+
+  return normalizeSupportUsers(payload);
+}
+
+export async function listSupportDepartments({ product, admin = false } = {}) {
+  const payload = await requestSupport(
+    admin ? "/support/admin/departments" : "/support/departments",
+    {
+      method: "GET",
+      query: {
+        product,
+      },
+    },
+    admin ? "list_admin_support_departments" : "list_support_departments",
+  );
+
+  return normalizeSupportDepartments(payload);
+}
+
+export async function createSupportUser(body = {}) {
+  const payload = await requestSupport(
+    "/support/admin/users",
+    {
+      method: "POST",
+      body,
+    },
+    "create_admin_support_user",
+  );
+  return normalizeSupportUser(pickFirst(payload?.user, payload?.item, payload?.data?.user, payload?.data, payload));
+}
+
+export async function updateSupportUser(userId, body = {}) {
+  const payload = await requestSupport(
+    `/support/admin/users/${encodeURIComponent(userId)}`,
+    {
+      method: "PATCH",
+      body,
+    },
+    "update_admin_support_user",
+  );
+  return normalizeSupportUser(pickFirst(payload?.user, payload?.item, payload?.data?.user, payload?.data, payload));
+}
+
+export async function createSupportDepartment(body = {}) {
+  const payload = await requestSupport(
+    "/support/admin/departments",
+    {
+      method: "POST",
+      body,
+    },
+    "create_admin_support_department",
+  );
+  return normalizeSupportDepartment(
+    pickFirst(payload?.department, payload?.item, payload?.data?.department, payload?.data, payload),
+  );
+}
+
+export async function updateSupportDepartment(departmentId, body = {}) {
+  const payload = await requestSupport(
+    `/support/admin/departments/${encodeURIComponent(departmentId)}`,
+    {
+      method: "PATCH",
+      body,
+    },
+    "update_admin_support_department",
+  );
+  return normalizeSupportDepartment(
+    pickFirst(payload?.department, payload?.item, payload?.data?.department, payload?.data, payload),
+  );
+}
+
+export async function deleteSupportDepartment(departmentId) {
+  const payload = await requestSupport(
+    `/support/admin/departments/${encodeURIComponent(departmentId)}`,
+    {
+      method: "DELETE",
+    },
+    "delete_admin_support_department",
+  );
+  return payload ?? {};
+}
+
 export async function getSupportSession(sessionId, tenantId, product) {
   const payload = await requestSupport(
     `/support/sessions/${sessionId}`,
@@ -395,13 +840,21 @@ export async function sendAgentReply({ sessionId, tenantId, product, message, ag
   return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
 }
 
-export async function closeSupportSession({ sessionId, tenantId, product, reason }) {
+export async function closeSupportSession({
+  sessionId,
+  tenantId,
+  product,
+  reason,
+  resolutionNote,
+  confirmNoFollowUp,
+}) {
   const body = {
     tenantId,
     product,
-    resolutionNote: reason,
-    reason,
   };
+  if (reason) body.reason = reason;
+  if (resolutionNote) body.resolutionNote = resolutionNote;
+  if (typeof confirmNoFollowUp === "boolean") body.confirmNoFollowUp = confirmNoFollowUp;
 
   const payload = await requestSupport(
     `/support/sessions/${sessionId}/close`,
@@ -444,6 +897,7 @@ export async function saveLeadForSession({
   phone,
   company,
 }) {
+  const nameParts = splitLeadName(name);
   const body = {
     tenantId,
     product,
@@ -451,6 +905,29 @@ export async function saveLeadForSession({
     email,
     phone,
     company,
+    // Compatibility aliases for backend variants.
+    leadName: name,
+    leadEmail: email,
+    leadPhone: phone,
+    leadCompany: company,
+    fullName: name,
+    firstName: nameParts.firstName,
+    lastName: nameParts.lastName,
+    lead: {
+      name,
+      email,
+      phone,
+      company,
+      fullName: name,
+      firstName: nameParts.firstName,
+      lastName: nameParts.lastName,
+    },
+    contact: {
+      name,
+      email,
+      phone,
+      company,
+    },
   };
 
   const payload = await requestSupport(
@@ -476,10 +953,19 @@ export async function saveInquiryForSession({
   const body = {
     tenantId,
     product,
+    message: messageSummary,
+    summary: messageSummary,
     messageSummary,
     rawUserDescription: messageSummary,
     urgency,
     intent,
+    inquiry: {
+      summary: messageSummary,
+      messageSummary,
+      rawUserDescription: messageSummary,
+      urgency,
+      intent,
+    },
   };
 
   const payload = await requestSupport(
@@ -489,6 +975,68 @@ export async function saveInquiryForSession({
       body,
     },
     "save_inquiry_for_session",
+  );
+
+  return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
+}
+
+export async function sendTranscriptForSession({
+  sessionId,
+  tenantId,
+  product,
+  to,
+  includeAiMessages = true,
+  includeAgentMessages = true,
+  includeSystemMessages = false,
+  subject,
+}) {
+  const body = {
+    tenantId,
+    product,
+    to,
+    includeAiMessages,
+    includeAgentMessages,
+    includeSystemMessages,
+  };
+  if (subject) body.subject = subject;
+
+  const payload = await requestSupport(
+    `/support/sessions/${sessionId}/send-transcript`,
+    {
+      method: "POST",
+      body,
+    },
+    "send_session_transcript",
+  );
+
+  return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
+}
+
+export async function assignSupportSession({
+  sessionId,
+  tenantId,
+  product,
+  departmentId,
+  assignedToUserId,
+  note,
+  notifyAssignee = true,
+  includeTranscriptSummary = true,
+}) {
+  const payload = await requestSupport(
+    `/support/sessions/${sessionId}/assign`,
+    {
+      method: "POST",
+      body: {
+        tenantId,
+        product,
+        departmentId,
+        assignedToUserId,
+        note,
+        notifyAssignee,
+        includeTranscriptSummary,
+      },
+    },
+    "assign_support_session",
   );
 
   return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
