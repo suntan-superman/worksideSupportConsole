@@ -9,6 +9,10 @@ Add two operational workflows to the Workside Support Console:
 
 This plan is written to keep frontend and backend implementation aligned.
 
+Related backend auth/onboarding plan:
+
+- `docs/backend_support_user_auth_onboarding_tasklist.md`
+
 ## Shared Product Rules
 
 ### Transcript to Contact
@@ -355,6 +359,7 @@ Response:
 - [x] Add Settings/Admin section.
 - [x] Add Support Users section.
 - [x] Add Departments section.
+- [x] Present Support Users and Departments in tabs to conserve space.
 - [x] Support Users table:
   - name
   - email
@@ -377,8 +382,16 @@ Response:
 - [x] Use existing departments as support user department choices.
 - [x] Use product dropdown for departments.
 - [x] Add department deletion action.
+- [x] Disable department deletion while users are assigned.
+- [x] Treat backend soft-delete as department deactivation in the UI.
+- [x] Hide inactive departments by default with a Show inactive toggle.
+- [x] Show users associated with each department and allow quick edit.
 - [x] Block duplicate department ids in the frontend.
 - [x] Add support user phone field for SMS notification support.
+- [x] Format support user phone input while typing.
+- [x] Disable support user save until required fields are valid.
+- [x] Replace freeform allowed tenants/customers with controlled selector.
+- [x] Add explicit `__all__` option for all tenants/customers.
 - [x] Only show admin UI to `super_admin`.
 - [x] Decide whether non-super `admin` should also see admin UI.
   - Initial rollout remains `super_admin` only.

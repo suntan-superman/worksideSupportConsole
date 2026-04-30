@@ -2,9 +2,12 @@ import { getApp, getApps, initializeApp } from "firebase/app";
 import {
   getAuth,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
+import { request } from "./api";
 
 const TOKEN_STORAGE_KEY = "workside_support_auth_token";
 const REQUIRED_FIREBASE_KEYS = [
@@ -96,6 +99,52 @@ export async function signInWithFirebaseCredentials(email, password) {
   return token;
 }
 
+export async function sendFirebasePasswordReset(email) {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error("Firebase auth is not configured in environment variables.");
+  }
+  await sendPasswordResetEmail(auth, String(email ?? "").trim());
+}
+
+export async function sendLoginOtp(email) {
+  return request("/auth/otp/send", {
+    method: "POST",
+    body: {
+      email: String(email ?? "").trim(),
+      purpose: "support_console_login",
+    },
+  });
+}
+
+export async function verifyLoginOtp(email, code) {
+  const payload = await request("/auth/otp/verify", {
+    method: "POST",
+    body: {
+      email: String(email ?? "").trim(),
+      code: String(code ?? "").trim(),
+      purpose: "support_console_login",
+    },
+  });
+  const customToken = payload?.customToken ?? payload?.firebaseCustomToken ?? payload?.data?.customToken;
+  if (customToken) {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      throw new Error("Firebase auth is not configured in environment variables.");
+    }
+    const result = await signInWithCustomToken(auth, customToken);
+    const idToken = await result.user.getIdToken(true);
+    setStoredToken(idToken);
+    return idToken;
+  }
+
+  const token = payload?.token ?? payload?.idToken ?? payload?.firebaseIdToken ?? payload?.data?.token;
+  if (token) {
+    setStoredToken(token);
+  }
+  return token;
+}
+
 export async function refreshStoredFirebaseToken(force = false) {
   const auth = getFirebaseAuth();
   const user = auth?.currentUser;
@@ -106,6 +155,11 @@ export async function refreshStoredFirebaseToken(force = false) {
   const token = await user.getIdToken(Boolean(force));
   setStoredToken(token);
   return token;
+}
+
+export function getCurrentFirebaseUser() {
+  const auth = getFirebaseAuth();
+  return auth?.currentUser ?? null;
 }
 
 export async function signOutAllAuth() {

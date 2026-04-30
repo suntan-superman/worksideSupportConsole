@@ -110,6 +110,8 @@ The frontend implementation is already wired to the contracts in this document.
 - [ ] Filter by `product`, `tenantId`, and `departmentId`.
 - [ ] Return only active assignable users by default.
 - [ ] Enforce tenant/product visibility for non-`super_admin` callers.
+- [ ] Ensure users with `allowedTenantIds: ["__all__"]` are returned for any tenant in their allowed products.
+- [ ] This route must work for assignment flows even when `/support/admin/users` works for admin CRUD.
 
 Query:
 
@@ -142,6 +144,8 @@ Response:
 - [ ] Require authenticated support access.
 - [ ] Filter by `product` when supplied.
 - [ ] Return active departments by default.
+- [ ] This route must work for assignment flows even when `/support/admin/departments` works for admin CRUD.
+- [ ] Return structured errors instead of `500` for validation/access problems.
 
 Response:
 
@@ -276,9 +280,11 @@ Initial rollout should be `super_admin` only.
 - [ ] Enforce `super_admin`.
 - [ ] Validate name and email.
 - [ ] Store optional phone number for SMS notification support.
+- [ ] Validate phone number when SMS notifications are enabled or phone is supplied.
 - [ ] Validate role is one of the supported support roles.
 - [ ] Require at least one department before allowing support user creation.
 - [ ] Require each support user to belong to at least one active department.
+- [ ] Support `allowedTenantIds: ["__all__"]` as explicit all-tenants access, or return the backend's preferred sentinel so the frontend can align.
 - [ ] Normalize comma/list fields to arrays.
 - [ ] Never allow duplicate active users with the same email.
 
@@ -310,6 +316,8 @@ Create/update request:
 - [ ] Validate default assignees are active.
 - [ ] Validate default assignees belong to the department or can receive that department's assignments.
 - [ ] Prevent deleting departments referenced by active sessions or active support users, unless using an explicit soft-delete/deactivate flow.
+- [ ] Return associated user/session counts when rejecting department deletion so the frontend can explain the blocker.
+- [ ] If department delete is implemented as soft-delete/deactivation, return the updated inactive department record so the UI can label the result accurately.
 
 Create/update request:
 

@@ -1,11 +1,135 @@
-DEFAULT 2026-04-29T01:32:02.707860Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z5", "res":{…}, "responseTime":349.2278579995036, "time":1.777426322708E12}
-INFO 2026-04-29T01:32:02.823239Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.53 KiB] [httpRequest.latency: 112 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CA388c3bc92bca0cd86cc33b2495874254
-DEFAULT 2026-04-29T01:32:02.826839Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1z6", "time":1.777426322827E12}
-DEFAULT 2026-04-29T01:32:02.936991Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z6", "res":{…}, "responseTime":109.95625600218773, "time":1.777426322937E12}
-INFO 2026-04-29T01:32:05.087388Z [httpRequest.requestMethod: OPTIONS] [httpRequest.status: 204] [httpRequest.responseSize: 360 B] [httpRequest.latency: 3 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CA19384f7bc1e978d51e016fe95928246a
-DEFAULT 2026-04-29T01:32:05.092006Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1z7", "time":1.777426325092E12}
-DEFAULT 2026-04-29T01:32:05.092977Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z7", "res":{…}, "responseTime":0.8739180006086826, "time":1.777426325093E12}
-INFO 2026-04-29T01:32:05.270255Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 5.37 KiB] [httpRequest.latency: 153 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CA19384f7bc1e978d51e016fe95928246a
-DEFAULT 2026-04-29T01:32:05.273721Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1z8", "time":1.777426325274E12}
-DEFAULT 2026-04-29T01:32:05.425897Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1z8", "res":{…}, "responseTime":151.47419799864292, "time":1.777426325425E12}
-INFO 2026-04-29T01:32:07.344331Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 50.81 KiB] [httpRequest.latency: 499 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus
+INFO 2026-04-30T18:49:40.792436Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 273 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:49:40.795657Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-v", "time":1.777574980796E12}
+DEFAULT 2026-04-30T18:49:41.066983Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-v", "res":{…}, "responseTime":271.24015900000813, "time":1.777574981067E12}
+INFO 2026-04-30T18:49:44.617167Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 581 B] [httpRequest.latency: 117 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/products
+DEFAULT 2026-04-30T18:49:44.622520Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-w", "time":1.777574984623E12}
+DEFAULT 2026-04-30T18:49:44.736993Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-w", "res":{…}, "responseTime":114.48827999999048, "time":1.777574984737E12}
+INFO 2026-04-30T18:49:44.867730Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 1.65 KiB] [httpRequest.latency: 350 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/tenants?product=merxus
+DEFAULT 2026-04-30T18:49:44.871482Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-x", "time":1.777574984871E12}
+DEFAULT 2026-04-30T18:49:45.220140Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-x", "res":{…}, "responseTime":347.92693400001735, "time":1.77757498522E12}
+INFO 2026-04-30T18:49:45.326414Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 2.73 KiB] [httpRequest.latency: 118 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/users?product=merxus
+DEFAULT 2026-04-30T18:49:45.330563Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-y", "time":1.777574985331E12}
+DEFAULT 2026-04-30T18:49:45.446225Z [support.users.list] audit logging failed {
+DEFAULT 2026-04-30T18:49:45.446247Z actorUid: 'O1Bmj7xxSqhtwxy1MVRW3aUsJHK2',
+DEFAULT 2026-04-30T18:49:45.446251Z actorEmail: 'sroy@worksidesoftware.com',
+DEFAULT 2026-04-30T18:49:45.446255Z role: 'super_admin',
+DEFAULT 2026-04-30T18:49:45.446258Z product: 'merxus',
+DEFAULT 2026-04-30T18:49:45.446261Z tenantId: null,
+DEFAULT 2026-04-30T18:49:45.446264Z departmentId: null,
+DEFAULT 2026-04-30T18:49:45.446268Z error: "Cannot read properties of undefined (reading 'name')"
+DEFAULT 2026-04-30T18:49:45.446271Z }
+DEFAULT 2026-04-30T18:49:45.446870Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-y", "res":{…}, "responseTime":116.22028599999612, "time":1.777574985447E12}
+INFO 2026-04-30T18:49:45.586610Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 286 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:49:45.591152Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-z", "time":1.777574985591E12}
+DEFAULT 2026-04-30T18:49:45.874721Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-z", "res":{…}, "responseTime":283.45579800000996, "time":1.777574985875E12}
+INFO 2026-04-30T18:49:46.008865Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 2.73 KiB] [httpRequest.latency: 104 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/users?product=merxus
+DEFAULT 2026-04-30T18:49:46.012503Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-10", "time":1.777574986013E12}
+DEFAULT 2026-04-30T18:49:46.114253Z [support.users.list] audit logging failed {
+DEFAULT 2026-04-30T18:49:46.114267Z actorUid: 'O1Bmj7xxSqhtwxy1MVRW3aUsJHK2',
+DEFAULT 2026-04-30T18:49:46.114271Z actorEmail: 'sroy@worksidesoftware.com',
+DEFAULT 2026-04-30T18:49:46.114275Z role: 'super_admin',
+DEFAULT 2026-04-30T18:49:46.114278Z product: 'merxus',
+DEFAULT 2026-04-30T18:49:46.114281Z tenantId: null,
+DEFAULT 2026-04-30T18:49:46.114284Z departmentId: null,
+DEFAULT 2026-04-30T18:49:46.114288Z error: "Cannot read properties of undefined (reading 'name')"
+DEFAULT 2026-04-30T18:49:46.114291Z }
+DEFAULT 2026-04-30T18:49:46.115143Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-10", "res":{…}, "responseTime":102.22206500000902, "time":1.777574986115E12}
+INFO 2026-04-30T18:49:46.233480Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 240 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:49:46.237116Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-11", "time":1.777574986237E12}
+DEFAULT 2026-04-30T18:49:46.475993Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-11", "res":{…}, "responseTime":238.67924900000799, "time":1.777574986476E12}
+INFO 2026-04-30T18:49:51.627415Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 387 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:49:51.630722Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-12", "time":1.777574991631E12}
+DEFAULT 2026-04-30T18:49:52.015959Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-12", "res":{…}, "responseTime":385.02268500000355, "time":1.777574992016E12}
+INFO 2026-04-30T18:49:52.122552Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 381 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:49:52.128202Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-13", "time":1.777574992128E12}
+DEFAULT 2026-04-30T18:49:52.506421Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-13", "res":{…}, "responseTime":377.80811500002164, "time":1.777574992506E12}
+INFO 2026-04-30T18:50:02.308579Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 469 B] [httpRequest.latency: 168 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/products
+DEFAULT 2026-04-30T18:50:02.313102Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-14", "time":1.777575002313E12}
+DEFAULT 2026-04-30T18:50:02.479547Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-14", "res":{…}, "responseTime":166.23316400000476, "time":1.777575002479E12}
+INFO 2026-04-30T18:50:02.575741Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 1.65 KiB] [httpRequest.latency: 256 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/tenants?product=merxus
+DEFAULT 2026-04-30T18:50:02.595246Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-15", "time":1.777575002595E12}
+DEFAULT 2026-04-30T18:50:02.834230Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-15", "res":{…}, "responseTime":238.66555000000517, "time":1.777575002834E12}
+INFO 2026-04-30T18:50:02.934852Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 2.73 KiB] [httpRequest.latency: 80 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/users?product=merxus
+DEFAULT 2026-04-30T18:50:02.938201Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-16", "time":1.777575002938E12}
+DEFAULT 2026-04-30T18:50:03.015452Z [support.users.list] audit logging failed {
+DEFAULT 2026-04-30T18:50:03.015477Z actorUid: 'LPSF7SoL6iSRJ6gWNoy7zS2CuzA3',
+DEFAULT 2026-04-30T18:50:03.015481Z actorEmail: 'sroy@prologixsa.com',
+DEFAULT 2026-04-30T18:50:03.015485Z role: 'support_agent',
+DEFAULT 2026-04-30T18:50:03.015488Z product: 'merxus',
+DEFAULT 2026-04-30T18:50:03.015491Z tenantId: null,
+DEFAULT 2026-04-30T18:50:03.015494Z departmentId: null,
+DEFAULT 2026-04-30T18:50:03.015500Z error: "Cannot read properties of undefined (reading 'name')"
+DEFAULT 2026-04-30T18:50:03.015503Z }
+DEFAULT 2026-04-30T18:50:03.016490Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-16", "res":{…}, "responseTime":78.1263780000154, "time":1.777575003016E12}
+INFO 2026-04-30T18:50:03.128931Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 364 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:03.134852Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-17", "time":1.777575003134E12}
+DEFAULT 2026-04-30T18:50:03.496077Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-17", "res":{…}, "responseTime":361.08720900001936, "time":1.777575003496E12}
+INFO 2026-04-30T18:50:03.619985Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 2.73 KiB] [httpRequest.latency: 140 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/users?product=merxus
+DEFAULT 2026-04-30T18:50:03.624029Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-18", "time":1.777575003624E12}
+DEFAULT 2026-04-30T18:50:03.761638Z [support.users.list] audit logging failed {
+DEFAULT 2026-04-30T18:50:03.761655Z actorUid: 'LPSF7SoL6iSRJ6gWNoy7zS2CuzA3',
+DEFAULT 2026-04-30T18:50:03.761664Z actorEmail: 'sroy@prologixsa.com',
+DEFAULT 2026-04-30T18:50:03.761670Z role: 'support_agent',
+DEFAULT 2026-04-30T18:50:03.761675Z product: 'merxus',
+DEFAULT 2026-04-30T18:50:03.761679Z tenantId: null,
+DEFAULT 2026-04-30T18:50:03.761684Z departmentId: null,
+DEFAULT 2026-04-30T18:50:03.761689Z error: "Cannot read properties of undefined (reading 'name')"
+DEFAULT 2026-04-30T18:50:03.761694Z }
+DEFAULT 2026-04-30T18:50:03.762279Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-18", "res":{…}, "responseTime":138.16165799999726, "time":1.777575003762E12}
+INFO 2026-04-30T18:50:03.869595Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 370 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:03.873903Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-19", "time":1.777575003873E12}
+DEFAULT 2026-04-30T18:50:04.242293Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-19", "res":{…}, "responseTime":368.13289700000314, "time":1.777575004242E12}
+INFO 2026-04-30T18:50:09.370080Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 335 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:09.374837Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1a", "time":1.777575009375E12}
+DEFAULT 2026-04-30T18:50:09.707095Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1a", "res":{…}, "responseTime":331.9096010000212, "time":1.777575009708E12}
+INFO 2026-04-30T18:50:09.819029Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 268 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:09.823725Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1b", "time":1.777575009824E12}
+DEFAULT 2026-04-30T18:50:10.090005Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1b", "res":{…}, "responseTime":265.97019200000796, "time":1.77757501009E12}
+INFO 2026-04-30T18:50:14.375747Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 270 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:14.381677Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1c", "time":1.777575014381E12}
+DEFAULT 2026-04-30T18:50:14.648439Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1c", "res":{…}, "responseTime":267.39746999999625, "time":1.777575014648E12}
+INFO 2026-04-30T18:50:14.792785Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 279 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:14.796253Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1d", "time":1.777575014796E12}
+DEFAULT 2026-04-30T18:50:15.073662Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1d", "res":{…}, "responseTime":277.235732000001, "time":1.777575015073E12}
+INFO 2026-04-30T18:50:19.379657Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 372 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:19.385132Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1e", "time":1.777575019385E12}
+DEFAULT 2026-04-30T18:50:19.754266Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1e", "res":{…}, "responseTime":368.9447030000156, "time":1.777575019754E12}
+INFO 2026-04-30T18:50:19.890983Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 400 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:19.896001Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1f", "time":1.777575019896E12}
+DEFAULT 2026-04-30T18:50:20.292972Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1f", "res":{…}, "responseTime":396.93494599999394, "time":1.777575020293E12}
+INFO 2026-04-30T18:50:24.379469Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 311 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:24.383264Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1g", "time":1.777575024383E12}
+DEFAULT 2026-04-30T18:50:24.692275Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1g", "res":{…}, "responseTime":308.9474100000225, "time":1.777575024692E12}
+INFO 2026-04-30T18:50:24.823016Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 388 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:24.826575Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1h", "time":1.777575024827E12}
+DEFAULT 2026-04-30T18:50:25.213406Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1h", "res":{…}, "responseTime":386.8781650000019, "time":1.777575025214E12}
+INFO 2026-04-30T18:50:29.378398Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 471 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:29.384803Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1i", "time":1.777575029385E12}
+DEFAULT 2026-04-30T18:50:29.851770Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1i", "res":{…}, "responseTime":467.0859209999908, "time":1.777575029852E12}
+INFO 2026-04-30T18:50:29.958252Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 316 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:29.961890Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1j", "time":1.777575029962E12}
+DEFAULT 2026-04-30T18:50:30.276866Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1j", "res":{…}, "responseTime":314.9092230000242, "time":1.777575030277E12}
+INFO 2026-04-30T18:50:34.372851Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 401 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:34.376455Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1k", "time":1.777575034377E12}
+DEFAULT 2026-04-30T18:50:34.776120Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1k", "res":{…}, "responseTime":399.5845749999862, "time":1.777575034776E12}
+INFO 2026-04-30T18:50:34.913819Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 247 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:34.917750Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1l", "time":1.777575034918E12}
+DEFAULT 2026-04-30T18:50:35.162737Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1l", "res":{…}, "responseTime":244.88285200000973, "time":1.777575035163E12}
+INFO 2026-04-30T18:50:39.402682Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 230 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:39.406577Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1m", "time":1.777575039406E12}
+DEFAULT 2026-04-30T18:50:39.635022Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1m", "res":{…}, "responseTime":228.37724999999045, "time":1.777575039635E12}
+INFO 2026-04-30T18:50:39.773932Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 241 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:39.777983Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1n", "time":1.777575039778E12}
+DEFAULT 2026-04-30T18:50:40.017237Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1n", "res":{…}, "responseTime":239.17178800000693, "time":1.777575040017E12}
+INFO 2026-04-30T18:50:44.380207Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 268 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:44.384576Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1o", "time":1.777575044385E12}
+DEFAULT 2026-04-30T18:50:44.651270Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1o", "res":{…}, "responseTime":266.6322109999892, "time":1.777575044652E12}
+INFO 2026-04-30T18:50:44.755157Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 220 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:44.758866Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1p", "time":1.777575044759E12}
+DEFAULT 2026-04-30T18:50:44.978133Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1p", "res":{…}, "responseTime":219.14503000001423, "time":1.777575044979E12}
+INFO 2026-04-30T18:50:49.368819Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 4.13 KiB] [httpRequest.latency: 277 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions?product=merxus&assignedTo=sroy%40prologixsa.com
+DEFAULT 2026-04-30T18:50:49.372226Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1q", "time":1.777575049372E12}
+DEFAULT 2026-04-30T18:50:49.648418Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1q", "res":{…}, "responseTime":276.00421399998595, "time":1.777575049649E12}
+INFO 2026-04-30T18:50:49.778177Z [httpRequest.requestMethod: GET] [httpRequest.status: 200] [httpRequest.responseSize: 6.97 KiB] [httpRequest.latency: 337 ms] [httpRequest.userAgent: Chrome 147.0.0.0] https://api.merxus.ai/support/sessions/CAf969645f759ff4de241001ec6df4b5f5?tenantId=office_1767976564567_p7vthxpe6&tenant=office_1767976564567_p7vthxpe6&product=merxus
+DEFAULT 2026-04-30T18:50:49.782337Z {"hostname":"localhost", "level":30, "msg":"incoming request", "pid":1, "req":{…}, "reqId":"req-1r", "time":1.777575049782E12}
+DEFAULT 2026-04-30T18:50:50.117580Z {"hostname":"localhost", "level":30, "msg":"request completed", "pid":1, "reqId":"req-1r", "res":{…}, "responseTime":334.86196499998914, "time":1.777575050117E12}

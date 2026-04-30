@@ -17,6 +17,9 @@ import {
   listSupportUsers,
   saveInquiryForSession,
   saveLeadForSession,
+  sendSupportUserInvite,
+  sendSupportUserPasswordReset,
+  sendSupportUserRoleNotice,
   sendTranscriptForSession,
   sendAgentReply,
   takeOverSession,
@@ -26,18 +29,24 @@ import {
 import { isAuthErrorCode, parseChatApiError, shouldRefreshSession } from "./services/chatErrors";
 import {
   getStoredToken,
+  getCurrentFirebaseUser,
   hasFirebaseAuthConfig,
   initializeAuthBridge,
   refreshStoredFirebaseToken,
+  sendFirebasePasswordReset,
+  sendLoginOtp,
   setStoredToken,
   signInWithFirebaseCredentials,
   signOutAllAuth,
+  verifyLoginOtp,
 } from "./services/auth";
 
 const AGENT_STORAGE_KEY = "workside_support_agent";
 const SELECTED_SESSION_KEY = "workside_selected_session";
 const FILTERS_STORAGE_KEY = "workside_support_filters";
+const FILTER_OWNER_STORAGE_KEY = "workside_support_filter_owner";
 const USER_ROLE_STORAGE_KEY = "workside_support_role";
+const ALL_TENANTS_VALUE = "__all__";
 
 const URGENCY_OPTIONS = ["low", "medium", "high"];
 const SESSION_STATUS_OPTIONS = [
@@ -131,6 +140,10 @@ function readStoredFilters() {
 
 function persistFilters() {
   localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(state.supportFilters));
+  const owner = currentAuthEmail();
+  if (owner) {
+    localStorage.setItem(FILTER_OWNER_STORAGE_KEY, owner);
+  }
 }
 
 function productLabelFromKey(value) {
@@ -200,6 +213,7 @@ const state = {
   supportFilters: storedFilters,
   productOptions: [],
   tenantOptions: [],
+  supportUsers: [],
   agentName: localStorage.getItem(AGENT_STORAGE_KEY) ?? "",
   selectedSessionId: localStorage.getItem(SELECTED_SESSION_KEY) ?? "",
   sessions: [],
@@ -245,6 +259,10 @@ const state = {
   authEmail: "",
   authPassword: "",
   authPasswordVisible: false,
+  authMode: "password",
+  authOtpCode: "",
+  authOtpSent: false,
+  authBusy: false,
   sessionListScrollTop: 0,
   detailPanelScrollTop: 0,
   intakePanelStateBySession: {},
@@ -255,6 +273,8 @@ const state = {
   adminDepartments: [],
   adminLoading: false,
   adminError: "",
+  adminActiveTab: "users",
+  adminShowInactiveDepartments: false,
   adminDialog: {
     open: false,
     type: "",
@@ -401,6 +421,15 @@ function isUserEditingDetailForm() {
   return DETAIL_EDITABLE_IDS.has(active.id);
 }
 
+function isWorkflowDialogOpen() {
+  return Boolean(
+    state.confirmDialog?.open ||
+      state.assignDialog?.open ||
+      state.transcriptDialog?.open ||
+      state.adminDialog?.open,
+  );
+}
+
 function stopRealtimeAndPolling() {
   if (pollingInterval) {
     clearInterval(pollingInterval);
@@ -412,7 +441,7 @@ function stopRealtimeAndPolling() {
 async function runPollingCycle() {
   if (!state.isAuthenticated || pollingInFlight) return;
   if (state.busyAction) return;
-  if (state.confirmDialog?.open) return;
+  if (isWorkflowDialogOpen()) return;
   if (isUserEditingDetailForm()) return;
   pollingInFlight = true;
   try {
@@ -424,7 +453,7 @@ async function runPollingCycle() {
       }
     }
     await loadSessions({ silent: true });
-    if (state.selectedSessionId) {
+    if (state.selectedSessionId && canUseSelectedSessionRoutes()) {
       await loadSelectedSession({ silent: true });
     }
   } finally {
@@ -577,6 +606,31 @@ function getSelectedSessionContext() {
   return fromList ?? state.selectedSession ?? null;
 }
 
+function getSessionActionContext(session = getSelectedSessionContext()) {
+  return {
+    tenantId: session?.tenantId || state.supportFilters.tenantId || undefined,
+    product: session?.productKey || state.supportFilters.product || undefined,
+  };
+}
+
+function hasRealTenantId(value) {
+  const tenantId = String(value ?? "").trim();
+  if (!tenantId) return false;
+  return !["default", "unknown", "unknown_tenant", "n/a", "null", "undefined"].includes(
+    tenantId.toLowerCase(),
+  );
+}
+
+function canUseSelectedSessionRoutes(session = getSelectedSessionContext()) {
+  if (!session) return false;
+  const context = getSessionActionContext(session);
+  return hasRealTenantId(context.tenantId);
+}
+
+function missingTenantContextMessage() {
+  return "This session is missing tenant/customer metadata, so support reps cannot open or action it. Ask an administrator to repair the session tenantId/officeId/customer mapping, or handle it from a super-admin account.";
+}
+
 function sessionIntakePanelState(sessionId) {
   if (!sessionId) return {};
   const panels = state.intakePanelStateBySession?.[sessionId];
@@ -652,6 +706,9 @@ const TRACE_LABELS = {
   list_admin_support_departments: "Admin Departments",
   create_admin_support_user: "Create Support User",
   update_admin_support_user: "Update Support User",
+  send_admin_support_user_invite: "Send User Invite",
+  send_admin_support_user_password_reset: "Send Password Reset",
+  send_admin_support_user_role_notice: "Send Role Notice",
   create_admin_support_department: "Create Department",
   update_admin_support_department: "Update Department",
   delete_admin_support_department: "Delete Department",
@@ -721,7 +778,86 @@ function scrollSelectedSessionIntoView({ force = false } = {}) {
 function supportUserDisplayLabel(user) {
   if (!user) return "Unknown user";
   const email = String(user.email ?? "").trim();
-  return email ? `${user.name} (${email})` : user.name;
+  const name = String(user.name ?? user.displayName ?? user.id ?? email ?? "Unknown user").trim();
+  return email ? `${name} (${email})` : name;
+}
+
+function normalizeComparableEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function currentAuthEmail() {
+  return (
+    normalizeComparableEmail(getCurrentFirebaseUser()?.email) ||
+    normalizeComparableEmail(state.authEmail)
+  );
+}
+
+function mergeSupportUserOptions(...collections) {
+  const byKey = new Map();
+  for (const collection of collections) {
+    for (const user of Array.isArray(collection) ? collection : []) {
+      if (!user) continue;
+      const id = String(user.id ?? user.uid ?? user.userId ?? user.email ?? "").trim();
+      const email = String(user.email ?? "").trim();
+      const name = String(user.name ?? user.displayName ?? email ?? id ?? "").trim();
+      const key = id || email.toLowerCase() || name.toLowerCase();
+      if (!key) continue;
+      const existing = byKey.get(key) ?? {};
+      byKey.set(key, {
+        ...existing,
+        ...user,
+        id: id || existing.id || email || name,
+        name: name || existing.name || email || id,
+        email: email || existing.email || "",
+        active: user.active !== false && existing.active !== false,
+      });
+    }
+  }
+  return [...byKey.values()].sort((left, right) =>
+    supportUserDisplayLabel(left).localeCompare(supportUserDisplayLabel(right)),
+  );
+}
+
+function supportUsersFromSessions(sessions = []) {
+  return sessions
+    .map((session) => ({
+      id: session.assignedToUserId || session.assignedToEmail || session.assignedToName,
+      name: session.assignedToName || session.assignedToEmail || session.assignedToUserId,
+      email: session.assignedToEmail || "",
+      active: true,
+    }))
+    .filter((user) => user.id || user.name || user.email);
+}
+
+function syncAgentNameFromAuthenticatedUser(users = state.supportUsers) {
+  const email = currentAuthEmail();
+  const firebaseUser = getCurrentFirebaseUser();
+  const matchedUser = email
+    ? users.find((user) => normalizeComparableEmail(user.email) === email)
+    : null;
+  const profileName = String(
+    matchedUser?.name || firebaseUser?.displayName || email || state.agentName || "",
+  ).trim();
+  if (!profileName) return;
+  if (state.agentName === profileName) return;
+  state.agentName = profileName;
+  localStorage.setItem(AGENT_STORAGE_KEY, profileName);
+}
+
+function syncStoredFiltersToAuthenticatedUser() {
+  const owner = currentAuthEmail();
+  if (!owner) return;
+  const previousOwner = normalizeComparableEmail(localStorage.getItem(FILTER_OWNER_STORAGE_KEY));
+  if (!previousOwner || previousOwner === owner) {
+    localStorage.setItem(FILTER_OWNER_STORAGE_KEY, owner);
+    return;
+  }
+
+  state.supportFilters.assignedTo = "";
+  state.supportFilters.tenantId = "";
+  localStorage.setItem(FILTER_OWNER_STORAGE_KEY, owner);
+  persistFilters();
 }
 
 function hasSendableTranscriptMessages(session) {
@@ -754,6 +890,117 @@ function departmentExists(departmentId, { excludingId = "" } = {}) {
     const currentId = String(department.id ?? "").trim().toLowerCase();
     return currentId === normalizedId && currentId !== ignoredId;
   });
+}
+
+function usersForDepartment(departmentId) {
+  const normalizedId = String(departmentId ?? "").trim().toLowerCase();
+  if (!normalizedId) return [];
+  return state.adminUsers.filter((user) =>
+    (user.departments ?? []).some((department) => String(department).trim().toLowerCase() === normalizedId),
+  );
+}
+
+function userCanAccessSessionForAssignment(user, session) {
+  if (!user || user.active === false) return false;
+  const product = String(session?.productKey ?? "").trim();
+  const tenantId = String(session?.tenantId ?? "").trim();
+  const allowedProducts = user.allowedProducts ?? [];
+  const allowedTenantIds = user.allowedTenantIds ?? [];
+  const productAllowed =
+    !allowedProducts.length ||
+    allowedProducts.includes(product) ||
+    allowedProducts.includes("__all__");
+  const tenantAllowed =
+    !allowedTenantIds.length ||
+    allowedTenantIds.includes(tenantId) ||
+    allowedTenantIds.includes("__all__");
+  return productAllowed && tenantAllowed;
+}
+
+function fallbackAssignmentOptionsFromAdmin(session) {
+  const product = String(session?.productKey ?? "").trim();
+  const departmentId = String(state.assignDialog.departmentId ?? "").trim();
+  const departments = activeAdminDepartments().filter((department) => {
+    if (!product) return true;
+    return !department.product || department.product === product;
+  });
+  const users = state.adminUsers.filter((user) => {
+    if (!userCanAccessSessionForAssignment(user, session)) return false;
+    if (!departmentId) return true;
+    return (user.departments ?? []).includes(departmentId);
+  });
+  return { departments, users };
+}
+
+function adminDialogValidation() {
+  const dialog = state.adminDialog;
+  if (!dialog.open) return { ok: false, reason: "" };
+
+  if (dialog.type === "user") {
+    if (!dialog.name.trim()) return { ok: false, reason: "Name is required." };
+    if (!isValidEmail(dialog.email)) return { ok: false, reason: "Enter a valid email address." };
+    if (!isValidPhone(dialog.phone)) return { ok: false, reason: "Enter a valid 10-digit phone number." };
+    if (!dialog.role.trim()) return { ok: false, reason: "Role is required." };
+    if (csvToList(dialog.departments).length === 0) {
+      return { ok: false, reason: "Choose at least one department." };
+    }
+    if (csvToList(dialog.allowedProducts).length === 0) {
+      return { ok: false, reason: "Allowed products are required." };
+    }
+    if (csvToList(dialog.allowedTenantIds).length === 0) {
+      return { ok: false, reason: "Allowed tenants/customers are required." };
+    }
+    return { ok: true, reason: "" };
+  }
+
+  if (dialog.type === "department") {
+    if (!dialog.id.trim()) return { ok: false, reason: "Department id is required." };
+    if (!/^[a-z0-9_-]+$/i.test(dialog.id.trim())) {
+      return { ok: false, reason: "Use only letters, numbers, underscores, or hyphens for the department id." };
+    }
+    if (!dialog.label.trim()) return { ok: false, reason: "Department label is required." };
+    if (!dialog.product.trim()) return { ok: false, reason: "Product is required." };
+    if (dialog.mode === "create" && departmentExists(dialog.id)) {
+      return { ok: false, reason: "This department id already exists." };
+    }
+    return { ok: true, reason: "" };
+  }
+
+  return { ok: false, reason: "" };
+}
+
+function friendlyAssignmentOptionsError(message) {
+  const text = String(message ?? "").trim();
+  if (!text) {
+    return "Unable to load assignment options.";
+  }
+  const lower = text.toLowerCase();
+  if (lower.includes("cannot read properties") || lower.includes("internal server error")) {
+    return "Assignment options could not be loaded. Ask an administrator to check the support users/departments API.";
+  }
+  return text;
+}
+
+function updateAdminDialogValidationUi() {
+  if (!state.adminDialog.open) return;
+  const validation = adminDialogValidation();
+  const saveButton = document.querySelector("#admin-dialog-save");
+  if (saveButton) {
+    saveButton.disabled = state.busyAction || !validation.ok;
+  }
+  const message = document.querySelector("#admin-dialog-validation-message");
+  if (message) {
+    message.textContent = validation.reason || "";
+  }
+  const duplicateWarning = document.querySelector("#admin-department-duplicate-warning");
+  if (duplicateWarning) {
+    duplicateWarning.textContent =
+      state.adminDialog.type === "department" &&
+      state.adminDialog.mode === "create" &&
+      departmentExists(state.adminDialog.id)
+        ? "This department id already exists."
+        : "";
+  }
 }
 
 function captureDetailPanelScroll() {
@@ -830,6 +1077,65 @@ function getFriendlyAuthMessage(rawMessage) {
   return message;
 }
 
+function getFriendlyLoginActionError(error, fallbackMessage) {
+  const message = String(error?.message ?? "").trim();
+  const lower = message.toLowerCase();
+  if (error?.status === 502 || lower.includes("bad gateway")) {
+    return "Login code was valid, but the backend could not issue a login token. Ask an administrator to check the OTP verify service logs and Firebase custom-token signing permissions.";
+  }
+  if (lower.includes("iam.serviceaccounts.signblob") || lower.includes("create-custom-tokens")) {
+    return "One-time code was verified, but the login service is missing permission to issue the session token. Ask an administrator to grant the backend service account permission to sign Firebase custom tokens.";
+  }
+  if (lower.includes("custom token") && lower.includes("firebase")) {
+    return "The login service returned a token the console could not exchange with Firebase. Ask an administrator to verify the OTP token response format and Firebase auth configuration.";
+  }
+  if (lower.includes("otp") && lower.includes("expired")) {
+    return "That one-time code has expired. Request a new code and try again.";
+  }
+  if (lower.includes("invalid") && lower.includes("code")) {
+    return "That one-time code is not valid. Check the code and try again.";
+  }
+  if (lower.includes("rate") || lower.includes("too many")) {
+    return "Too many attempts. Wait a moment before requesting another code.";
+  }
+  return message || fallbackMessage;
+}
+
+function getFriendlyPasswordLoginError(error) {
+  const code = String(error?.code ?? "").toLowerCase();
+  const message = String(error?.message ?? "").trim();
+  const lower = message.toLowerCase();
+
+  if (
+    code.includes("invalid-credential") ||
+    code.includes("wrong-password") ||
+    code.includes("user-not-found") ||
+    lower.includes("auth/invalid-credential") ||
+    lower.includes("auth/wrong-password") ||
+    lower.includes("auth/user-not-found")
+  ) {
+    return "The email or password is not correct. Try again or use Forgot password.";
+  }
+
+  if (code.includes("invalid-email") || lower.includes("auth/invalid-email")) {
+    return "Enter a valid email address.";
+  }
+
+  if (code.includes("too-many-requests") || lower.includes("too many")) {
+    return "Too many sign-in attempts. Wait a moment, then try again or reset your password.";
+  }
+
+  if (code.includes("user-disabled") || lower.includes("auth/user-disabled")) {
+    return "This support account is disabled. Ask an administrator to reactivate it.";
+  }
+
+  if (code.includes("network") || lower.includes("network")) {
+    return "Unable to reach the login service. Check your connection and try again.";
+  }
+
+  return message || "Unable to sign in. Check your credentials and try again.";
+}
+
 async function completeAuthenticatedStartup() {
   state.isAuthenticated = true;
   clearAuthBlockedState();
@@ -840,7 +1146,9 @@ async function completeAuthenticatedStartup() {
   } catch {
     // Non-fatal: continue with current token and allow request layer fallback behavior.
   }
+  syncStoredFiltersToAuthenticatedUser();
   await refreshUserRole();
+  syncAgentNameFromAuthenticatedUser();
   if (!state.userRole) {
     setTimeout(async () => {
       if (!state.isAuthenticated || state.userRole) return;
@@ -852,9 +1160,11 @@ async function completeAuthenticatedStartup() {
     }, 1000);
   }
   await loadFilterOptions({ silent: true });
+  await loadSupportUserOptions({ silent: true });
   render();
 
   await loadSessions();
+  await loadSupportUserOptions({ silent: true });
   if (state.selectedSessionId) {
     await loadSelectedSession();
   }
@@ -880,8 +1190,85 @@ async function handleFirebaseLogin() {
     state.authTokenDraft = getStoredToken();
     await completeAuthenticatedStartup();
   } catch (error) {
-    state.authError = error?.message ?? "Unable to sign in with Firebase credentials.";
+    state.authError = getFriendlyPasswordLoginError(error);
     render();
+  }
+}
+
+async function handlePasswordResetRequest() {
+  const email = String(state.authEmail ?? "").trim();
+  if (!email || !isValidEmail(email)) {
+    state.authError = "Enter your email address before requesting a password reset.";
+    render();
+    return;
+  }
+
+  state.authBusy = true;
+  state.authError = "";
+  render();
+  try {
+    await sendFirebasePasswordReset(email);
+    state.authMessage = "Password reset email sent. Check your inbox for the reset link.";
+  } catch (error) {
+    state.authError = error?.message ?? "Unable to send password reset email.";
+  } finally {
+    state.authBusy = false;
+    render();
+  }
+}
+
+async function handleSendOtp() {
+  const email = String(state.authEmail ?? "").trim();
+  if (!email || !isValidEmail(email)) {
+    state.authError = "Enter your email address before requesting a one-time code.";
+    render();
+    return;
+  }
+
+  state.authBusy = true;
+  state.authError = "";
+  render();
+  try {
+    await sendLoginOtp(email);
+    state.authOtpSent = true;
+    state.authMessage = "One-time code sent. Check your email.";
+    state.authError = "";
+  } catch (error) {
+    state.authError = getFriendlyLoginActionError(error, "Unable to send one-time code.");
+  } finally {
+    state.authBusy = false;
+    render();
+    if (state.authOtpSent) {
+      focusElement("#auth-otp-input");
+    }
+  }
+}
+
+async function handleVerifyOtp() {
+  const email = String(state.authEmail ?? "").trim();
+  const code = String(state.authOtpCode ?? "").trim();
+  if (!email || !code) {
+    state.authError = "Email and one-time code are required.";
+    render();
+    return;
+  }
+
+  state.authBusy = true;
+  state.authError = "";
+  render();
+  try {
+    const token = await verifyLoginOtp(email, code);
+    if (!token) {
+      throw new Error("OTP verification did not return an auth token.");
+    }
+    state.authTokenDraft = getStoredToken();
+    state.authOtpCode = "";
+    await completeAuthenticatedStartup();
+  } catch (error) {
+    state.authError = getFriendlyLoginActionError(error, "Unable to verify one-time code.");
+    render();
+  } finally {
+    state.authBusy = false;
   }
 }
 
@@ -901,6 +1288,10 @@ async function handleLogout() {
   state.authEmail = "";
   state.authPassword = "";
   state.authPasswordVisible = false;
+  state.authMode = "password";
+  state.authOtpCode = "";
+  state.authOtpSent = false;
+  state.authBusy = false;
   state.confirmDialog = {
     open: false,
     title: "",
@@ -919,7 +1310,10 @@ async function handleLogout() {
   state.adminPanelOpen = false;
   state.adminUsers = [];
   state.adminDepartments = [];
+  state.supportUsers = [];
   state.adminError = "";
+  state.adminActiveTab = "users";
+  state.adminShowInactiveDepartments = false;
   state.adminDialog = {
     open: false,
     type: "",
@@ -972,6 +1366,7 @@ async function handleLogout() {
 
 function renderAuthScreen() {
   const firebaseAvailable = hasFirebaseAuthConfig();
+  const otpMode = state.authMode === "otp";
 
   app.innerHTML = `
     <div class="auth-shell">
@@ -995,32 +1390,64 @@ function renderAuthScreen() {
         ${
           firebaseAvailable
             ? `
+              <div class="auth-mode-tabs" role="tablist" aria-label="Sign in method">
+                <button
+                  id="auth-mode-password"
+                  class="auth-mode-tab ${!otpMode ? "is-active" : ""}"
+                  type="button"
+                  aria-selected="${!otpMode ? "true" : "false"}"
+                >Password</button>
+                <button
+                  id="auth-mode-otp"
+                  class="auth-mode-tab ${otpMode ? "is-active" : ""}"
+                  type="button"
+                  aria-selected="${otpMode ? "true" : "false"}"
+                >One-time code</button>
+              </div>
               <form id="firebase-login-form" class="auth-login-form">
                 <label>
                   Email
                   <input id="auth-email-input" type="email" autocomplete="username" value="${escapeHtml(state.authEmail)}" placeholder="you@workside.ai" />
                 </label>
-                <label>
-                  Password
-                  <div class="password-input-wrap">
-                    <input id="auth-password-input" type="${state.authPasswordVisible ? "text" : "password"}" autocomplete="current-password" value="${escapeHtml(state.authPassword)}" placeholder="Password" />
-                    <button
-                      id="password-visibility-toggle"
-                      class="password-visibility-toggle"
-                      type="button"
-                      aria-label="${state.authPasswordVisible ? "Hide password" : "Show password"}"
-                      aria-pressed="${state.authPasswordVisible ? "true" : "false"}"
-                      title="${state.authPasswordVisible ? "Hide password" : "Show password"}"
-                    >
-                      ${
-                        state.authPasswordVisible
-                          ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>`
-                          : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle><path d="M4 4l16 16"></path></svg>`
-                      }
-                    </button>
-                  </div>
-                </label>
-                <button id="firebase-login-button" class="button button-primary" type="submit">Sign In</button>
+                ${
+                  otpMode
+                    ? `
+                      <label>
+                        One-time code
+                        <input id="auth-otp-input" type="text" inputmode="numeric" autocomplete="one-time-code" value="${escapeHtml(state.authOtpCode)}" placeholder="6-digit code" />
+                      </label>
+                      <div class="auth-inline-actions">
+                        <button id="auth-send-otp-button" class="button" type="button" ${state.authBusy ? "disabled" : ""}>${state.authOtpSent ? "Resend Code" : "Send Code"}</button>
+                        <button id="firebase-login-button" class="button button-primary" type="submit" ${state.authBusy ? "disabled" : ""}>Verify & Sign In</button>
+                      </div>
+                    `
+                    : `
+                      <label>
+                        Password
+                        <div class="password-input-wrap">
+                          <input id="auth-password-input" type="${state.authPasswordVisible ? "text" : "password"}" autocomplete="current-password" value="${escapeHtml(state.authPassword)}" placeholder="Password" />
+                          <button
+                            id="password-visibility-toggle"
+                            class="password-visibility-toggle"
+                            type="button"
+                            aria-label="${state.authPasswordVisible ? "Hide password" : "Show password"}"
+                            aria-pressed="${state.authPasswordVisible ? "true" : "false"}"
+                            title="${state.authPasswordVisible ? "Hide password" : "Show password"}"
+                          >
+                            ${
+                              state.authPasswordVisible
+                                ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>`
+                                : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle><path d="M4 4l16 16"></path></svg>`
+                            }
+                          </button>
+                        </div>
+                      </label>
+                      <div class="auth-inline-actions">
+                        <button id="auth-reset-password-button" class="button button-quiet" type="button" ${state.authBusy ? "disabled" : ""}>Forgot password?</button>
+                        <button id="firebase-login-button" class="button button-primary" type="submit" ${state.authBusy ? "disabled" : ""}>Sign In</button>
+                      </div>
+                    `
+                }
               </form>
             `
             : `<div class="banner banner-warning">Firebase auth environment variables are missing. Add the required VITE_FIREBASE_* values to sign in.</div>`
@@ -1047,6 +1474,41 @@ function bindAuthEvents() {
     });
   }
 
+  const otpInput = document.querySelector("#auth-otp-input");
+  if (otpInput) {
+    otpInput.addEventListener("input", (event) => {
+      state.authOtpCode = event.target.value;
+    });
+  }
+
+  const passwordModeButton = document.querySelector("#auth-mode-password");
+  if (passwordModeButton) {
+    passwordModeButton.addEventListener("click", () => {
+      state.authMode = "password";
+      state.authError = "";
+      render();
+    });
+  }
+
+  const otpModeButton = document.querySelector("#auth-mode-otp");
+  if (otpModeButton) {
+    otpModeButton.addEventListener("click", () => {
+      state.authMode = "otp";
+      state.authError = "";
+      render();
+    });
+  }
+
+  const resetPasswordButton = document.querySelector("#auth-reset-password-button");
+  if (resetPasswordButton) {
+    resetPasswordButton.addEventListener("click", handlePasswordResetRequest);
+  }
+
+  const sendOtpButton = document.querySelector("#auth-send-otp-button");
+  if (sendOtpButton) {
+    sendOtpButton.addEventListener("click", handleSendOtp);
+  }
+
   const passwordToggleButton = document.querySelector("#password-visibility-toggle");
   if (passwordToggleButton) {
     passwordToggleButton.addEventListener("click", () => {
@@ -1065,7 +1527,11 @@ function bindAuthEvents() {
   if (firebaseLoginForm) {
     firebaseLoginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      await handleFirebaseLogin();
+      if (state.authMode === "otp") {
+        await handleVerifyOtp();
+      } else {
+        await handleFirebaseLogin();
+      }
     });
   }
 }
@@ -1127,6 +1593,11 @@ async function handleChatApiError(contextLabel, error) {
         : (`[${context}] ${parsed.message || "Your account is missing required permissions for this action. Contact an administrator."}`),
     );
     render();
+    return;
+  }
+
+  if (parsed.code === "TENANT_REQUIRED_FOR_ACTION") {
+    setBanner("warning", missingTenantContextMessage());
     return;
   }
 
@@ -1236,6 +1707,19 @@ function formatPhoneInput(value) {
   return hasCountryCode ? `+1 ${formattedLocal}` : formattedLocal;
 }
 
+function phoneDigitCount(value) {
+  return String(value ?? "").replace(/\D/g, "").length;
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
+}
+
+function isValidPhone(value) {
+  const digits = phoneDigitCount(value);
+  return digits === 10 || (digits === 11 && String(value ?? "").replace(/\D/g, "").startsWith("1"));
+}
+
 function extractLikelyName(text) {
   if (!text) return "";
   const source = String(text);
@@ -1252,6 +1736,36 @@ function extractLikelyName(text) {
 
   const titleCasePair = source.match(/\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20})\b/);
   return titleCasePair?.[1]?.trim() ?? "";
+}
+
+function looksLikeContactName(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("@") ||
+    lower.includes("office_") ||
+    lower.includes("tenant_") ||
+    lower.includes("rest_") ||
+    lower.includes("agent_") ||
+    lower === "default" ||
+    lower === "undefined" ||
+    lower === "unknown" ||
+    lower === "n/a"
+  ) {
+    return false;
+  }
+  if (/\d/.test(text)) return false;
+  return /^[A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+){0,3}$/.test(text);
+}
+
+function inferredContactNameForSession(session) {
+  const candidates = [
+    session?.leadName,
+    session?.tenantName,
+    session?.organizationName,
+  ];
+  return candidates.map((value) => String(value ?? "").trim()).find(looksLikeContactName) || "";
 }
 
 function inferLeadFromMessages(messages) {
@@ -1416,6 +1930,8 @@ function buildCloseSessionAttempts(session) {
     },
     {
       sessionId: state.selectedSessionId,
+      tenantId: session?.tenantId || undefined,
+      product: session?.productKey || undefined,
       resolutionNote: "Closed by support console",
       confirmNoFollowUp: false,
     },
@@ -1454,9 +1970,12 @@ function isInquiryCaptureRequiredError(error) {
 async function saveDraftInquiryForSelectedSession() {
   const summary = state.inquiryDraft.messageSummary.trim();
   if (!summary || !state.selectedSessionId) return null;
+  const context = getSessionActionContext();
 
   const detail = await saveInquiryForSession({
     sessionId: state.selectedSessionId,
+    tenantId: context.tenantId,
+    product: context.product,
     messageSummary: summary,
     urgency: state.inquiryDraft.urgency,
     intent: state.inquiryDraft.intent,
@@ -1487,8 +2006,9 @@ function updateDraftsFromSession(session, { force = false } = {}) {
   if (!session) return;
 
   if (force || !state.leadDirty) {
+    const inferredSessionName = inferredContactNameForSession(session);
     state.leadDraft = {
-      name: session.leadName ?? "",
+      name: session.leadName || inferredSessionName || "",
       email: session.leadEmail ?? "",
       phone: formatPhoneInput(session.leadPhone ?? ""),
       company: session.leadCompany ?? "",
@@ -1519,8 +2039,9 @@ function applySessionDetail(detail, { forceDraftSync = false } = {}) {
 
   if (!state.leadDirty) {
     const inferred = inferLeadFromMessages(detail.messages);
-    if (!state.leadDraft.name && inferred.name) {
-      state.leadDraft.name = inferred.name;
+    const inferredSessionName = inferredContactNameForSession(detail.session);
+    if (!state.leadDraft.name && (inferred.name || inferredSessionName)) {
+      state.leadDraft.name = inferred.name || inferredSessionName;
     }
     if (!state.leadDraft.email && inferred.email) {
       state.leadDraft.email = inferred.email;
@@ -1604,6 +2125,55 @@ async function loadFilterOptions({ silent = false } = {}) {
   persistFilters();
 }
 
+async function loadSupportUserOptions({ silent = false } = {}) {
+  if (!state.isAuthenticated) return;
+  const filters = state.supportFilters;
+  let apiUsers = [];
+
+  try {
+    apiUsers = await listSupportUsers({
+      product: filters.product || undefined,
+      tenantId: filters.tenantId || undefined,
+    });
+  } catch (error) {
+    if (isSuperAdminRole()) {
+      try {
+        apiUsers = await listSupportUsers({ admin: true });
+        state.adminUsers = mergeSupportUserOptions(state.adminUsers, apiUsers);
+      } catch {
+        if (!silent) {
+          setBanner("warning", "Unable to load support user filter options from the routing API.");
+        }
+      }
+    } else if (!silent) {
+      setBanner("warning", "Unable to load support user filter options from the routing API.");
+    }
+  }
+
+  state.supportUsers = mergeSupportUserOptions(
+    apiUsers,
+    state.adminUsers,
+    supportUsersFromSessions(state.sessions),
+  );
+
+  if (
+    state.supportFilters.assignedTo &&
+    !state.supportUsers.some((user) => {
+      const assigned = String(state.supportFilters.assignedTo).toLowerCase();
+      return (
+        String(user.id ?? "").toLowerCase() === assigned ||
+        String(user.email ?? "").toLowerCase() === assigned ||
+        String(user.name ?? "").toLowerCase() === assigned
+      );
+    })
+  ) {
+    state.supportFilters.assignedTo = "";
+    persistFilters();
+  }
+
+  syncAgentNameFromAuthenticatedUser(state.supportUsers);
+}
+
 async function loadAdminPanelData() {
   if (!isSuperAdminRole()) return;
   state.adminLoading = true;
@@ -1616,6 +2186,8 @@ async function loadAdminPanelData() {
     ]);
     state.adminUsers = users;
     state.adminDepartments = departments;
+    state.supportUsers = mergeSupportUserOptions(state.supportUsers, users, supportUsersFromSessions(state.sessions));
+    syncAgentNameFromAuthenticatedUser(state.supportUsers);
   } catch (error) {
     const parsed = parseChatApiError(error);
     state.adminError = parsed.message || "Unable to load support admin data.";
@@ -1657,11 +2229,11 @@ function openAdminUserDialog(user = null) {
     id: user?.id ?? "",
     name: user?.name ?? "",
     email: user?.email ?? "",
-    phone: user?.phone ?? "",
+    phone: formatPhoneInput(user?.phone ?? ""),
     role: user?.role ?? "support_agent",
     departments: listToCsv(user?.departments),
     allowedProducts: listToCsv(user?.allowedProducts) || state.supportFilters.product,
-    allowedTenantIds: listToCsv(user?.allowedTenantIds),
+    allowedTenantIds: user ? listToCsv(user.allowedTenantIds) : ALL_TENANTS_VALUE,
     active: user?.active !== false,
     label: "",
     product: "",
@@ -1702,24 +2274,9 @@ async function handleSaveAdminDialog() {
   const dialog = state.adminDialog;
   if (!dialog.open) return;
 
-  if (dialog.type === "user" && (!dialog.name.trim() || !dialog.email.trim())) {
-    setBanner("warning", "Support user name and email are required.");
-    return;
-  }
-  if (dialog.type === "user" && csvToList(dialog.departments).length === 0) {
-    setBanner("warning", "Choose at least one department before saving a support user.");
-    return;
-  }
-  if (dialog.type === "department" && (!dialog.id.trim() || !dialog.label.trim())) {
-    setBanner("warning", "Department id and label are required.");
-    return;
-  }
-  if (
-    dialog.type === "department" &&
-    dialog.mode === "create" &&
-    departmentExists(dialog.id)
-  ) {
-    setBanner("warning", "A department with this id already exists.");
+  const validation = adminDialogValidation();
+  if (!validation.ok) {
+    setBanner("warning", validation.reason || "Complete the required fields before saving.");
     return;
   }
 
@@ -1775,10 +2332,18 @@ async function handleDeleteDepartment(departmentId) {
   if (!isSuperAdminRole() || state.busyAction) return;
   const department = state.adminDepartments.find((item) => item.id === departmentId);
   if (!department) return;
+  const associatedUsers = usersForDepartment(department.id);
+  if (associatedUsers.length) {
+    setBanner(
+      "warning",
+      `Cannot delete ${department.label || department.id}; ${associatedUsers.length} support user(s) are still assigned to it.`,
+    );
+    return;
+  }
   const confirmed = await requestConfirmationDialog({
-    title: "Delete Department?",
+    title: "Confirm Delete",
     lines: [
-      `Delete ${department.label || department.id}?`,
+      `Department: ${department.label || department.id}`,
       "This should only be used for departments that are not currently assigned to active support users or sessions.",
     ],
     confirmLabel: "Delete",
@@ -1791,10 +2356,50 @@ async function handleDeleteDepartment(departmentId) {
   render();
   try {
     await deleteSupportDepartment(department.id);
-    setBanner("success", "Department deleted.");
     await loadAdminPanelData();
+    const stillPresent = state.adminDepartments.some((item) => item.id === department.id);
+    setBanner("success", stillPresent ? "Department deactivated." : "Department deleted.");
   } catch (error) {
     await handleChatApiError("Delete department", error);
+  } finally {
+    state.busyAction = false;
+    render();
+  }
+}
+
+async function handleSupportUserAccountAction(userId, action) {
+  if (!isSuperAdminRole() || state.busyAction) return;
+  const user = state.adminUsers.find((item) => item.id === userId);
+  if (!user) return;
+
+  const actionMap = {
+    invite: {
+      fn: sendSupportUserInvite,
+      label: "Invite sent",
+      context: "Send invite",
+    },
+    reset: {
+      fn: sendSupportUserPasswordReset,
+      label: "Password reset sent",
+      context: "Send password reset",
+    },
+    role: {
+      fn: sendSupportUserRoleNotice,
+      label: "Role update notice sent",
+      context: "Send role notice",
+    },
+  };
+  const entry = actionMap[action];
+  if (!entry) return;
+
+  state.busyAction = true;
+  render();
+  try {
+    await entry.fn(user.id);
+    setBanner("success", `${entry.label} to ${user.email || user.name}.`);
+    await loadAdminPanelData();
+  } catch (error) {
+    await handleChatApiError(entry.context, error);
   } finally {
     state.busyAction = false;
     render();
@@ -1824,6 +2429,12 @@ async function loadSessions({ silent = false } = {}) {
     const nextSessionIds = new Set(sessions.map((session) => session.id).filter(Boolean));
     const newSessionCount = [...nextSessionIds].filter((id) => !previousSessionIds.has(id)).length;
     state.sessions = sortSessionsByPriority(sessions);
+    state.supportUsers = mergeSupportUserOptions(
+      state.supportUsers,
+      state.adminUsers,
+      supportUsersFromSessions(state.sessions),
+    );
+    syncAgentNameFromAuthenticatedUser(state.supportUsers);
     const shouldRevealSelectedSession = Boolean(state.selectedSessionId);
     for (const session of state.sessions) {
       syncNoFollowUpScopeCapability(session);
@@ -1892,7 +2503,15 @@ async function loadSelectedSession({ silent = false } = {}) {
   if (!silent) render();
 
   try {
-    const detail = await getSupportSession(state.selectedSessionId);
+    const context = getSessionActionContext();
+    if (!hasRealTenantId(context.tenantId)) {
+      state.messages = [];
+      if (!silent) {
+        setBanner("warning", missingTenantContextMessage());
+      }
+      return;
+    }
+    const detail = await getSupportSession(state.selectedSessionId, context.tenantId, context.product);
     clearAuthBlockedState();
     state.accessDenied = false;
     applySessionDetail(detail);
@@ -1927,6 +2546,10 @@ async function handleSessionSelect(sessionId) {
 
 async function handleTakeOver() {
   if (!state.selectedSessionId || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes()) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
@@ -1939,14 +2562,18 @@ async function handleTakeOver() {
   state.busyAction = true;
   render();
   try {
+    const context = getSessionActionContext();
     const detail = await takeOverSession({
       sessionId: state.selectedSessionId,
+      tenantId: context.tenantId,
+      product: context.product,
       agentName: state.agentName.trim(),
     });
 
     clearAuthBlockedState();
     applySessionDetail(detail);
     setBanner("success", "Live transfer accepted. You are now controlling this session.");
+    focusElement("#reply-input");
   } catch (error) {
     await handleChatApiError("Accept transfer", error);
   } finally {
@@ -1962,6 +2589,10 @@ async function handleRequestTransfer() {
     return;
   }
   const activeSession = getSelectedSessionContext();
+  if (!canUseSelectedSessionRoutes(activeSession)) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   const transferReadiness = getActionReadiness(activeSession, "requesting transfer");
   if (!transferReadiness.ok) {
     if (activeSession?.id) {
@@ -1982,8 +2613,11 @@ async function handleRequestTransfer() {
   try {
     const reason = state.transferDraft.reason || "manual";
     const note = state.transferDraft.note.trim() || "Support console requested human transfer.";
+    const context = getSessionActionContext(activeSession);
     const detail = await escalateSupportSession({
       sessionId: state.selectedSessionId,
+      tenantId: context.tenantId,
+      product: context.product,
       reason,
       note,
     });
@@ -1992,6 +2626,7 @@ async function handleRequestTransfer() {
     state.transferDirty = false;
     applySessionDetail(detail);
     setBanner("success", "Transfer request queued for human assignment.");
+    focusElement("#takeover-button");
   } catch (error) {
     await handleChatApiError("Request transfer", error);
   } finally {
@@ -2011,13 +2646,20 @@ async function handleSendReply() {
     setBanner("error", "Accept transfer before sending a human reply.");
     return;
   }
+  if (!canUseSelectedSessionRoutes()) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
 
   state.busyAction = true;
   render();
   try {
     const sentAt = new Date().toISOString();
+    const context = getSessionActionContext();
     const detail = await sendAgentReply({
       sessionId: state.selectedSessionId,
+      tenantId: context.tenantId,
+      product: context.product,
       message: text,
       agentName: state.agentName.trim(),
     });
@@ -2039,6 +2681,7 @@ async function handleSendReply() {
       ];
     }
     setBanner("success", "Reply sent.");
+    focusElement("#reply-input");
   } catch (error) {
     await handleChatApiError("Send reply", error);
   } finally {
@@ -2056,41 +2699,63 @@ async function loadAssignmentOptions(session) {
   };
   render();
   try {
-    const [departments, users] = await Promise.all([
-      listSupportDepartments({
-        product: session.productKey || undefined,
-      }),
-      listSupportUsers({
-        product: session.productKey || undefined,
-        tenantId: session.tenantId || undefined,
-        departmentId: state.assignDialog.departmentId || undefined,
-      }),
-    ]);
+    const departments = await listSupportDepartments({
+      product: session.productKey || undefined,
+      tenantId: session.tenantId || undefined,
+    });
+    const users = await listSupportUsers({
+      product: session.productKey || undefined,
+      tenantId: session.tenantId || undefined,
+      departmentId: state.assignDialog.departmentId || undefined,
+    });
     state.assignmentOptions = {
-      users,
-      departments,
+      users: Array.isArray(users) ? users.filter(Boolean) : [],
+      departments: Array.isArray(departments) ? departments.filter(Boolean) : [],
       loading: false,
       error: "",
     };
-    if (!state.assignDialog.departmentId && departments[0]?.id) {
-      state.assignDialog.departmentId = departments[0].id;
+    if (!state.assignDialog.departmentId && state.assignmentOptions.departments[0]?.id) {
+      state.assignDialog.departmentId = state.assignmentOptions.departments[0].id;
     }
     if (
       !state.assignDialog.assignedToUserId &&
       session.assignedToUserId &&
-      users.some((user) => user.id === session.assignedToUserId)
+      state.assignmentOptions.users.some((user) => user.id === session.assignedToUserId)
     ) {
       state.assignDialog.assignedToUserId = session.assignedToUserId;
-    } else if (!state.assignDialog.assignedToUserId && users[0]?.id) {
-      state.assignDialog.assignedToUserId = users[0].id;
+    } else if (!state.assignDialog.assignedToUserId && state.assignmentOptions.users[0]?.id) {
+      state.assignDialog.assignedToUserId = state.assignmentOptions.users[0].id;
     }
   } catch (error) {
     const parsed = parseChatApiError(error);
+    if (isSuperAdminRole()) {
+      if (!state.adminUsers.length && !state.adminDepartments.length) {
+        await loadAdminPanelData();
+      }
+      const fallback = fallbackAssignmentOptionsFromAdmin(session);
+      if (fallback.departments.length || fallback.users.length) {
+        const nextDepartmentId = state.assignDialog.departmentId || fallback.departments[0]?.id || "";
+        if (nextDepartmentId && !state.assignDialog.departmentId) {
+          state.assignDialog.departmentId = nextDepartmentId;
+        }
+        const alignedFallback = fallbackAssignmentOptionsFromAdmin(session);
+        state.assignmentOptions = {
+          users: alignedFallback.users,
+          departments: alignedFallback.departments,
+          loading: false,
+          error: "Using admin routing data because the assignment lookup API could not be loaded.",
+        };
+        if (!state.assignDialog.assignedToUserId && alignedFallback.users[0]?.id) {
+          state.assignDialog.assignedToUserId = alignedFallback.users[0].id;
+        }
+        return;
+      }
+    }
     state.assignmentOptions = {
       users: [],
       departments: [],
       loading: false,
-      error: parsed.message || "Unable to load assignment options.",
+      error: friendlyAssignmentOptionsError(parsed.message),
     };
   } finally {
     render();
@@ -2158,6 +2823,11 @@ function handleCloseTranscriptDialog() {
 async function handleAssignSession() {
   const session = getSelectedSessionContext();
   if (!session || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes(session)) {
+    state.assignmentOptions.error = missingTenantContextMessage();
+    render();
+    return;
+  }
   if (!state.assignDialog.assignedToUserId) {
     state.assignmentOptions.error = "Choose a support user before assigning this session.";
     render();
@@ -2208,6 +2878,10 @@ async function handleAssignSession() {
 async function handleSendTranscript() {
   const session = getSelectedSessionContext();
   if (!session || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes(session)) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   const to = state.transcriptDialog.to.trim();
   const subject = state.transcriptDialog.subject.trim();
   if (!to) {
@@ -2243,6 +2917,10 @@ async function handleSendTranscript() {
 async function handleSaveLead() {
   const sessionId = state.selectedSessionId;
   if (!sessionId || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes()) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
@@ -2261,8 +2939,11 @@ async function handleSaveLead() {
   state.busyAction = true;
   render();
   try {
+    const context = getSessionActionContext();
     const detail = await saveLeadForSession({
       sessionId,
+      tenantId: context.tenantId,
+      product: context.product,
       name,
       email,
       phone,
@@ -2285,6 +2966,10 @@ async function handleSaveLead() {
 
 async function handleSaveInquiry() {
   if (!state.selectedSessionId || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes()) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
@@ -2299,8 +2984,11 @@ async function handleSaveInquiry() {
   state.busyAction = true;
   render();
   try {
+    const context = getSessionActionContext();
     const detail = await saveInquiryForSession({
       sessionId: state.selectedSessionId,
+      tenantId: context.tenantId,
+      product: context.product,
       messageSummary: summary,
       urgency: state.inquiryDraft.urgency,
       intent: state.inquiryDraft.intent,
@@ -2335,6 +3023,10 @@ function handleGenerateInquirySummary() {
 async function handleCloseSession() {
   const activeSession = getSelectedSessionContext();
   if (!activeSession || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes(activeSession)) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
@@ -2387,6 +3079,10 @@ async function handleCloseSession() {
 async function handleCloseNoFollowUp() {
   const activeSession = getSelectedSessionContext();
   if (!activeSession || state.busyAction) return;
+  if (!canUseSelectedSessionRoutes(activeSession)) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
     return;
@@ -2429,6 +3125,8 @@ async function handleCloseNoFollowUp() {
         `no-followup+${String(state.selectedSessionId ?? "").trim()}@no-contact.invalid`;
       const leadDetail = await saveLeadForSession({
         sessionId: state.selectedSessionId,
+        tenantId: currentSession?.tenantId || undefined,
+        product: currentSession?.productKey || undefined,
         name: fallbackName,
         email: fallbackEmail,
         phone: currentSession.leadPhone?.trim?.() || "",
@@ -2445,6 +3143,8 @@ async function handleCloseNoFollowUp() {
         "Anonymous contact completed with no follow-up, callback, or additional action required.";
       const inquiryDetail = await saveInquiryForSession({
         sessionId: state.selectedSessionId,
+        tenantId: currentSession?.tenantId || undefined,
+        product: currentSession?.productKey || undefined,
         messageSummary: fallbackSummary,
         urgency: state.inquiryDraft.urgency || "low",
         intent: state.inquiryDraft.intent || "general",
@@ -2489,7 +3189,8 @@ function renderSessionList(sessions) {
 
   return sessions
     .map((session) => {
-      const label = session.leadName || session.leadEmail || "Anonymous visitor";
+      const inferredContactName = inferredContactNameForSession(session);
+      const label = session.leadName || inferredContactName || session.leadEmail || "Anonymous visitor";
       const leadState = hasRequiredLeadIdentity(session) ? "Lead captured" : "Lead missing";
       const tenantLabel = session.tenantName || session.organizationName || session.tenantId || "Unknown tenant";
       const compactTenantLabel = abbreviateMiddle(tenantLabel, { max: 28, keep: 8 });
@@ -2653,6 +3354,128 @@ function renderSessionOperationsSummary(session) {
   `;
 }
 
+function renderLiveTransferPanel({
+  session,
+  canTakeOver,
+  canRequestTransfer,
+  canReply,
+  requestTransferButtonEnabled,
+  transferReadiness,
+  readOnly,
+  routeContextAvailable,
+}) {
+  const transferRequested = isSessionEscalated(session);
+  const humanAccepted = isHumanSession(session);
+  const transferBlockedReason = readOnly
+    ? "Viewer role is read-only."
+    : !routeContextAvailable
+      ? "Tenant/customer metadata is missing."
+      : transferReadiness.ok
+        ? ""
+        : transferReadiness.reason;
+  const currentLabel = humanAccepted
+    ? "Human connected"
+    : transferRequested
+      ? "Waiting for takeover"
+      : session.status === "active_ai"
+        ? "AI handling"
+        : statusLabel(session.status);
+  const requestStepClass = transferRequested || humanAccepted ? "is-complete" : "is-current";
+  const takeoverStepClass = humanAccepted ? "is-complete" : transferRequested ? "is-current" : "is-pending";
+  const replyStepClass = humanAccepted ? "is-current" : "is-pending";
+
+  return `
+    <section class="live-transfer-panel" aria-label="Live transfer workflow">
+      <header class="live-transfer-header">
+        <div>
+          <span>Live Transfer</span>
+          <strong>${escapeHtml(currentLabel)}</strong>
+        </div>
+        ${
+          transferBlockedReason && session.status === "active_ai"
+            ? `<p>${escapeHtml(transferBlockedReason)}</p>`
+            : ""
+        }
+      </header>
+      <div class="live-transfer-steps">
+        <article class="live-transfer-step ${requestStepClass}">
+          <span>${transferRequested || humanAccepted ? "Completed" : "Current"}</span>
+          <strong>Request transfer</strong>
+          <p>${transferRequested || humanAccepted ? "Human help requested." : "AI owns this session."}</p>
+        </article>
+        <article class="live-transfer-step ${takeoverStepClass}">
+          <span>${humanAccepted ? "Completed" : transferRequested ? "Current" : "Pending"}</span>
+          <strong>Accept takeover</strong>
+          <p>${humanAccepted ? "Human operator connected." : transferRequested ? "Ready for a human." : "Available after request."}</p>
+        </article>
+        <article class="live-transfer-step ${replyStepClass}">
+          <span>${humanAccepted ? "Current" : "Pending"}</span>
+          <strong>Reply to contact</strong>
+          <p>${humanAccepted ? "Composer is ready." : "Available after takeover."}</p>
+        </article>
+      </div>
+      ${
+        canRequestTransfer
+          ? `
+            <form id="transfer-request-form" class="transfer-request-form live-transfer-request">
+              <label>
+                Transfer reason
+                <select id="transfer-reason-input">
+                  ${ESCALATION_REASONS.map(
+                    (reason) => `<option value="${reason}" ${state.transferDraft.reason === reason ? "selected" : ""}>${reason}</option>`,
+                  ).join("")}
+                </select>
+              </label>
+              <label>
+                Internal note
+                <textarea id="transfer-note-input" rows="2" placeholder="Optional transfer context for the human agent.">${escapeHtml(
+                  state.transferDraft.note,
+                )}</textarea>
+              </label>
+              <button
+                id="request-transfer-button"
+                class="button button-primary"
+                type="submit"
+                title="${escapeHtml(transferReadiness.ok ? "Request human transfer" : transferReadiness.reason)}"
+                ${requestTransferButtonEnabled ? "" : "disabled"}
+              >
+                Request Transfer
+              </button>
+              ${
+                transferReadiness.ok
+                  ? ""
+                  : `<p class="transfer-action-note">${escapeHtml(transferReadiness.reason)}</p>`
+              }
+            </form>
+          `
+          : ""
+      }
+      ${
+        canTakeOver
+          ? `
+            <div class="live-transfer-action-row">
+              <button id="takeover-inline-button" class="button button-primary" type="button" ${state.busyAction ? "disabled" : ""}>
+                Accept Transfer
+              </button>
+            </div>
+          `
+          : ""
+      }
+      ${
+        canReply
+          ? `
+            <div class="live-transfer-action-row">
+              <button id="focus-reply-button" class="button button-quiet" type="button">
+                Reply
+              </button>
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
 function renderDetailPanel() {
   if (!state.selectedSessionId) {
     return `
@@ -2688,22 +3511,26 @@ function renderDetailPanel() {
 
   const closeCheck = canCloseSession(session);
   const readOnly = isViewerRole();
-  const canTakeOver = !readOnly && session.status === "escalated";
-  const canRequestTransfer = !readOnly && session.status === "active_ai";
+  const routeContextAvailable = canUseSelectedSessionRoutes(session);
+  const sessionActionDisabled = readOnly || !routeContextAvailable;
+  const canTakeOver = !sessionActionDisabled && session.status === "escalated";
+  const canRequestTransfer = !sessionActionDisabled && session.status === "active_ai";
   const transferReadiness = getActionReadiness(session, "requesting transfer");
   const requestTransferButtonEnabled = canRequestTransfer && transferReadiness.ok && !state.busyAction;
-  const canReply = !readOnly && session.status === "active_human";
-  const canEditIntake = !readOnly;
+  const canReply = !sessionActionDisabled && session.status === "active_human";
+  const canEditIntake = !sessionActionDisabled;
   const transcriptHasMessages = hasSendableTranscriptMessages(session);
-  const canSendTranscript = !readOnly && Boolean(session.leadEmail) && transcriptHasMessages && !state.busyAction;
+  const canSendTranscript =
+    !sessionActionDisabled && Boolean(session.leadEmail) && transcriptHasMessages && !state.busyAction;
   const transcriptTitle = !session.leadEmail
     ? "Save contact email before sending transcript"
     : !transcriptHasMessages
       ? "No customer-visible messages are available for transcript"
       : `Send transcript to ${session.leadEmail}`;
-  const canAssignSession = !readOnly && session.status !== "closed" && !state.busyAction;
+  const canAssignSession = !sessionActionDisabled && session.status !== "closed" && !state.busyAction;
   const noFollowUpDisabled = isNoFollowUpDisabledForSession(session);
-  const canCloseNoFollowUp = !readOnly && session.status !== "closed" && !noFollowUpDisabled;
+  const canCloseNoFollowUp =
+    !sessionActionDisabled && session.status !== "closed" && !noFollowUpDisabled;
   const leadIdentityCaptured = hasRequiredLeadIdentity(session);
   const tenantLabel = session.tenantName || session.organizationName || session.tenantId || "Unknown";
   const tenantIdTooltip = session.tenantId
@@ -2730,14 +3557,17 @@ function renderDetailPanel() {
       ? "Captured"
       : "Required";
   const closeButtonEnabled =
-    !readOnly &&
+    !sessionActionDisabled &&
     closeCheck.ok &&
     leadReadyForCloseUi &&
     inquiryReadyForCloseUi &&
     !state.busyAction;
+  const routeContextWarning = routeContextAvailable ? "" : missingTenantContextMessage();
   const closeActionHint = readOnly
     ? "Viewer role is read-only. You cannot close sessions."
-    : needsLeadSaveForClose
+    : !routeContextAvailable
+      ? "Session actions are unavailable because tenant/customer metadata is missing."
+      : needsLeadSaveForClose
       ? "Lead details are filled in. Click Save Lead to enable Close Session."
       : needsInquirySaveForClose
         ? "Inquiry details are filled in. Click Save Inquiry to enable Close Session."
@@ -2827,6 +3657,12 @@ function renderDetailPanel() {
         </div>
       </header>
 
+      ${
+        routeContextWarning
+          ? `<div class="banner banner-warning detail-warning">${escapeHtml(routeContextWarning)}</div>`
+          : ""
+      }
+
       <dl class="session-facts">
         <div><dt>Product</dt><dd>${escapeHtml(productLabelFromKey(session.productKey))}</dd></div>
         <div><dt>Tenant/Customer</dt><dd><span class="tenant-hover-chip" title="${escapeHtml(tenantIdTooltip)}">${escapeHtml(tenantLabel)}</span></dd></div>
@@ -2838,6 +3674,17 @@ function renderDetailPanel() {
         <div><dt>Owner</dt><dd>${escapeHtml(session.assignedToName || session.assignedToEmail || session.assignedToUserId || state.agentName || "Unassigned")}</dd></div>
         <div><dt>Department</dt><dd>${escapeHtml(session.departmentLabel || "Unassigned")}</dd></div>
       </dl>
+
+      ${renderLiveTransferPanel({
+        session,
+        canTakeOver,
+        canRequestTransfer,
+        canReply,
+        requestTransferButtonEnabled,
+        transferReadiness,
+        readOnly,
+        routeContextAvailable,
+      })}
 
       ${renderSessionOperationsSummary(session)}
 
@@ -2945,43 +3792,6 @@ function renderDetailPanel() {
       ${readOnly ? `<p class="validation-note">Viewer role is read-only. Session actions are disabled.</p>` : ""}
 
       ${
-        canRequestTransfer
-          ? `
-            <form id="transfer-request-form" class="transfer-request-form">
-              <label>
-                Transfer reason
-                <select id="transfer-reason-input">
-                  ${ESCALATION_REASONS.map(
-                    (reason) => `<option value="${reason}" ${state.transferDraft.reason === reason ? "selected" : ""}>${reason}</option>`,
-                  ).join("")}
-                </select>
-              </label>
-              <label>
-                Internal note
-                <textarea id="transfer-note-input" rows="2" placeholder="Optional transfer context for the human agent.">${escapeHtml(
-                  state.transferDraft.note,
-                )}</textarea>
-              </label>
-              <button
-                id="request-transfer-button"
-                class="button"
-                type="submit"
-                title="${escapeHtml(transferReadiness.ok ? "Request human transfer" : transferReadiness.reason)}"
-                ${requestTransferButtonEnabled ? "" : "disabled"}
-              >
-                Request Transfer
-              </button>
-              ${
-                transferReadiness.ok
-                  ? ""
-                  : `<p class="transfer-action-note">${escapeHtml(transferReadiness.reason)}</p>`
-              }
-            </form>
-          `
-          : ""
-      }
-
-      ${
         closeCheck.ok ? "" : `<p class="validation-note">${escapeHtml(closeCheck.reason)}</p>`
       }
 
@@ -3035,13 +3845,14 @@ function renderConfirmDialog() {
 function renderAssignDialog() {
   if (!state.assignDialog.open) return "";
   const session = getSelectedSessionContext();
-  const departments = state.assignmentOptions.departments;
-  const users = state.assignmentOptions.users;
+  const departments = (state.assignmentOptions.departments ?? []).filter(Boolean);
+  const users = (state.assignmentOptions.users ?? []).filter(Boolean);
   const selectedDepartment = departments.find((department) => department.id === state.assignDialog.departmentId);
   const selectedUser = users.find((user) => user.id === state.assignDialog.assignedToUserId);
   const currentOwner =
     session?.assignedToName || session?.assignedToEmail || session?.assignedToUserId || "Unassigned";
   const eligibleUsers = users.filter((user) => user.active !== false);
+  const selectedUserName = selectedUser ? supportUserDisplayLabel(selectedUser).replace(/\s+\([^)]*\)$/, "") : "";
   return `
     <div id="assign-dialog-backdrop" class="confirm-overlay" role="presentation">
       <section class="confirm-dialog assign-dialog" role="dialog" aria-modal="true" aria-labelledby="assign-dialog-title">
@@ -3072,7 +3883,7 @@ function renderAssignDialog() {
                 .map(
                   (department) => `<option value="${escapeHtml(department.id)}" ${
                     state.assignDialog.departmentId === department.id ? "selected" : ""
-                  }>${escapeHtml(department.label)}</option>`,
+                  }>${escapeHtml(department.label || department.id || "Unnamed department")}</option>`,
                 )
                 .join("")}
             </select>
@@ -3097,8 +3908,8 @@ function renderAssignDialog() {
           }
           ${
             selectedUser
-              ? `<p class="dialog-help">Assigning to <strong>${escapeHtml(selectedUser.name)}</strong>${
-                  selectedUser.departments.length
+              ? `<p class="dialog-help">Assigning to <strong>${escapeHtml(selectedUserName)}</strong>${
+                  selectedUser.departments?.length
                     ? ` in ${escapeHtml(selectedUser.departments.join(", "))}`
                     : ""
                 }.</p>`
@@ -3202,6 +4013,116 @@ function renderAdminPanel() {
   const activeDepartments = state.adminDepartments.filter((department) => department.active).length;
   const uniqueRoles = new Set(state.adminUsers.map((user) => user.role).filter(Boolean)).size;
   const canCreateUsers = activeAdminDepartments().length > 0;
+  const visibleDepartments = state.adminShowInactiveDepartments
+    ? state.adminDepartments
+    : state.adminDepartments.filter((department) => department.active !== false);
+  const inactiveDepartmentCount = state.adminDepartments.length - activeDepartments;
+  const usersTabActive = state.adminActiveTab !== "departments";
+  const departmentsTabActive = state.adminActiveTab === "departments";
+  const supportUsersTable = `
+    <section>
+      <h4>Support Users</h4>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Departments</th><th>Products</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${
+              state.adminUsers.length
+                ? state.adminUsers
+                    .map(
+                      (user) => `<tr>
+                        <td>${escapeHtml(user.name)}</td>
+                        <td>${escapeHtml(user.email || "-")}</td>
+                        <td>${escapeHtml(user.phone ? formatPhoneInput(user.phone) : "-")}</td>
+                        <td>${escapeHtml(user.role)}</td>
+                        <td>${escapeHtml(user.departments.join(", ") || "-")}</td>
+                        <td>${escapeHtml(user.allowedProducts.join(", ") || "-")}</td>
+                        <td>${user.active ? "Active" : "Inactive"}</td>
+                        <td class="admin-row-actions">
+                          <button class="button button-compact" type="button" data-admin-user-edit="${escapeHtml(user.id)}">Edit</button>
+                          <button class="button button-compact" type="button" data-admin-user-invite="${escapeHtml(user.id)}">Invite</button>
+                          <button class="button button-compact" type="button" data-admin-user-reset="${escapeHtml(user.id)}">Reset</button>
+                          <button class="button button-compact" type="button" data-admin-user-role-notice="${escapeHtml(user.id)}">Notify</button>
+                        </td>
+                      </tr>`,
+                    )
+                    .join("")
+                : `<tr><td colspan="8">No support users loaded.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+  const departmentsTable = `
+    <section>
+      <div class="admin-section-header">
+        <h4>Departments</h4>
+        <label class="checkbox-row admin-inline-toggle">
+          <input id="admin-show-inactive-departments-input" type="checkbox" ${
+            state.adminShowInactiveDepartments ? "checked" : ""
+          } />
+          Show inactive${inactiveDepartmentCount ? ` (${inactiveDepartmentCount})` : ""}
+        </label>
+      </div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>ID</th><th>Department</th><th>Product</th><th>Users</th><th>Defaults</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${
+              visibleDepartments.length
+                ? visibleDepartments
+                    .map((department) => {
+                      const associatedUsers = usersForDepartment(department.id);
+                      const deleteDisabled = associatedUsers.length > 0;
+                      return `<tr>
+                        <td><code>${escapeHtml(department.id)}</code></td>
+                        <td>${escapeHtml(department.label)}</td>
+                        <td>${escapeHtml(department.product || "-")}</td>
+                        <td>
+                          ${
+                            associatedUsers.length
+                              ? `<div class="admin-chip-list">${associatedUsers
+                                  .map(
+                                    (user) =>
+                                      `<button class="admin-chip" type="button" data-admin-user-edit="${escapeHtml(
+                                        user.id,
+                                      )}" title="Edit ${escapeHtml(user.name)}">${escapeHtml(user.name)}</button>`,
+                                  )
+                                  .join("")}</div>`
+                              : "-"
+                          }
+                        </td>
+                        <td>${escapeHtml(department.defaultAssigneeIds.join(", ") || "-")}</td>
+                        <td>${department.active ? "Active" : "Inactive"}</td>
+                        <td class="admin-row-actions">
+                          <button class="button button-compact" type="button" data-admin-department-edit="${escapeHtml(department.id)}">Edit</button>
+                          <button
+                            class="button button-compact button-danger"
+                            type="button"
+                            title="${deleteDisabled ? "Remove users from this department before deleting." : "Delete department"}"
+                            data-admin-department-delete="${escapeHtml(department.id)}"
+                            ${deleteDisabled ? "disabled" : ""}
+                          >Delete</button>
+                        </td>
+                      </tr>`;
+                    })
+                    .join("")
+                : `<tr><td colspan="7">${
+                    state.adminDepartments.length
+                      ? "No active departments. Enable Show inactive to view archived departments."
+                      : "No departments loaded."
+                  }</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
   return `
     <section class="admin-panel">
       <header class="admin-panel-header">
@@ -3244,68 +4165,24 @@ function renderAdminPanel() {
           <p>Current support staffing mix</p>
         </article>
       </div>
-      <div class="admin-grid">
-        <section>
-          <h4>Support Users</h4>
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead>
-                <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Departments</th><th>Products</th><th>Status</th><th></th></tr>
-              </thead>
-              <tbody>
-                ${
-                  state.adminUsers.length
-                    ? state.adminUsers
-                        .map(
-                          (user) => `<tr>
-                            <td>${escapeHtml(user.name)}</td>
-                            <td>${escapeHtml(user.email || "-")}</td>
-                            <td>${escapeHtml(user.phone || "-")}</td>
-                            <td>${escapeHtml(user.role)}</td>
-                            <td>${escapeHtml(user.departments.join(", ") || "-")}</td>
-                            <td>${escapeHtml(user.allowedProducts.join(", ") || "-")}</td>
-                            <td>${user.active ? "Active" : "Inactive"}</td>
-                            <td><button class="button button-compact" type="button" data-admin-user-edit="${escapeHtml(user.id)}">Edit</button></td>
-                          </tr>`,
-                        )
-                        .join("")
-                    : `<tr><td colspan="8">No support users loaded.</td></tr>`
-                }
-              </tbody>
-            </table>
-          </div>
-        </section>
-        <section>
-          <h4>Departments</h4>
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead>
-                <tr><th>ID</th><th>Department</th><th>Product</th><th>Defaults</th><th>Status</th><th></th></tr>
-              </thead>
-              <tbody>
-                ${
-                  state.adminDepartments.length
-                    ? state.adminDepartments
-                        .map(
-                          (department) => `<tr>
-                            <td><code>${escapeHtml(department.id)}</code></td>
-                            <td>${escapeHtml(department.label)}</td>
-                            <td>${escapeHtml(department.product || "-")}</td>
-                            <td>${escapeHtml(department.defaultAssigneeIds.join(", ") || "-")}</td>
-                            <td>${department.active ? "Active" : "Inactive"}</td>
-                            <td class="admin-row-actions">
-                              <button class="button button-compact" type="button" data-admin-department-edit="${escapeHtml(department.id)}">Edit</button>
-                              <button class="button button-compact button-danger" type="button" data-admin-department-delete="${escapeHtml(department.id)}">Delete</button>
-                            </td>
-                          </tr>`,
-                        )
-                        .join("")
-                    : `<tr><td colspan="6">No departments loaded.</td></tr>`
-                }
-              </tbody>
-            </table>
-          </div>
-        </section>
+      <div class="admin-tabs" role="tablist" aria-label="Support admin sections">
+        <button
+          id="admin-tab-users"
+          class="admin-tab ${usersTabActive ? "is-active" : ""}"
+          type="button"
+          role="tab"
+          aria-selected="${usersTabActive ? "true" : "false"}"
+        >Support Users <span>${escapeHtml(String(state.adminUsers.length))}</span></button>
+        <button
+          id="admin-tab-departments"
+          class="admin-tab ${departmentsTabActive ? "is-active" : ""}"
+          type="button"
+          role="tab"
+          aria-selected="${departmentsTabActive ? "true" : "false"}"
+        >Departments <span>${escapeHtml(String(activeDepartments))}</span></button>
+      </div>
+      <div class="admin-tab-panel">
+        ${departmentsTabActive ? departmentsTable : supportUsersTable}
       </div>
     </section>
   `;
@@ -3319,7 +4196,12 @@ function renderAdminDialog() {
   const products = state.productOptions.length ? state.productOptions : FALLBACK_PRODUCTS;
   const departmentOptions = activeAdminDepartments();
   const selectedDepartments = new Set(csvToList(dialog.departments));
+  const selectedProducts = new Set(csvToList(dialog.allowedProducts));
+  const tenantOptions = state.tenantOptions.length ? state.tenantOptions : [{ id: "default", name: "default" }];
+  const selectedTenants = new Set(csvToList(dialog.allowedTenantIds));
+  const validation = adminDialogValidation();
   const duplicateDepartmentId = !isUser && dialog.mode === "create" && departmentExists(dialog.id);
+  const showPhoneWarning = isUser && dialog.phone.trim() && !isValidPhone(dialog.phone);
   return `
     <div id="admin-dialog-backdrop" class="confirm-overlay" role="presentation">
       <section class="confirm-dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-dialog-title">
@@ -3337,10 +4219,12 @@ function renderAdminDialog() {
                 <label>
                   Email
                   <input id="admin-user-email-input" type="email" value="${escapeHtml(dialog.email)}" placeholder="user@example.com" />
+                  ${dialog.email.trim() && !isValidEmail(dialog.email) ? `<span class="field-warning">Enter a valid email address.</span>` : ""}
                 </label>
                 <label>
                   Phone
                   <input id="admin-user-phone-input" type="tel" inputmode="tel" value="${escapeHtml(dialog.phone)}" placeholder="(555) 555-5555" />
+                  ${showPhoneWarning ? `<span class="field-warning">Enter a valid 10-digit phone number.</span>` : ""}
                 </label>
                 <label>
                   Role
@@ -3352,6 +4236,7 @@ function renderAdminDialog() {
                       )
                       .join("")}
                   </select>
+                  ${departmentOptions.length === 0 ? `<span class="field-warning">Create a department before adding users.</span>` : ""}
                 </label>
                 <label>
                   Departments
@@ -3367,11 +4252,30 @@ function renderAdminDialog() {
                 </label>
                 <label>
                   Allowed products
-                  <input id="admin-user-products-input" value="${escapeHtml(dialog.allowedProducts)}" placeholder="merxus" />
+                  <select id="admin-user-products-input" multiple size="${Math.min(Math.max(products.length, 3), 6)}">
+                    ${products
+                      .map(
+                        (product) => `<option value="${escapeHtml(product.id)}" ${
+                          selectedProducts.has(product.id) ? "selected" : ""
+                        }>${escapeHtml(product.label)} (${escapeHtml(product.id)})</option>`,
+                      )
+                      .join("")}
+                  </select>
                 </label>
                 <label>
                   Allowed tenants/customers
-                  <input id="admin-user-tenants-input" value="${escapeHtml(dialog.allowedTenantIds)}" placeholder="default, tenant_a" />
+                  <select id="admin-user-tenants-input" multiple size="${Math.min(Math.max(tenantOptions.length + 1, 3), 7)}">
+                    <option value="${ALL_TENANTS_VALUE}" ${
+                      selectedTenants.has(ALL_TENANTS_VALUE) ? "selected" : ""
+                    }>All tenants/customers</option>
+                    ${tenantOptions
+                      .map(
+                        (tenant) => `<option value="${escapeHtml(tenant.id)}" ${
+                          selectedTenants.has(tenant.id) ? "selected" : ""
+                        }>${escapeHtml(tenant.name)} (${escapeHtml(tenant.id)})</option>`,
+                      )
+                      .join("")}
+                  </select>
                 </label>
                 <label class="checkbox-row">
                   <input id="admin-user-active-input" type="checkbox" ${dialog.active ? "checked" : ""} />
@@ -3384,7 +4288,9 @@ function renderAdminDialog() {
                   <input id="admin-department-id-input" value="${escapeHtml(dialog.id)}" placeholder="sales" ${
                     dialog.mode === "edit" ? "disabled" : ""
                   } />
-                  ${duplicateDepartmentId ? `<span class="field-warning">This department id already exists.</span>` : ""}
+                  <span id="admin-department-duplicate-warning" class="field-warning">${
+                    duplicateDepartmentId ? "This department id already exists." : ""
+                  }</span>
                 </label>
                 <label>
                   Label
@@ -3412,15 +4318,39 @@ function renderAdminDialog() {
                 </label>
               `
           }
+          <p id="admin-dialog-validation-message" class="dialog-help">${escapeHtml(validation.reason)}</p>
           <footer class="confirm-dialog-actions">
             <button id="admin-dialog-cancel" class="button button-quiet" type="button">Cancel</button>
-            <button class="button button-primary" type="submit" ${
-              state.busyAction || duplicateDepartmentId ? "disabled" : ""
+            <button id="admin-dialog-save" class="button button-primary" type="submit" ${
+              state.busyAction || !validation.ok ? "disabled" : ""
             }>Save</button>
           </footer>
         </form>
       </section>
     </div>
+  `;
+}
+
+function renderAssignedToFilterOptions() {
+  const selected = String(state.supportFilters.assignedTo ?? "").trim();
+  const users = mergeSupportUserOptions(state.supportUsers, state.adminUsers, supportUsersFromSessions(state.sessions));
+  return `
+    <option value="" ${selected ? "" : "selected"}>All</option>
+    ${users
+      .map((user) => {
+        const candidates = [user.id, user.email, user.name]
+          .map((item) => String(item ?? "").trim())
+          .filter(Boolean);
+        const selectedMatchesUser = candidates.some(
+          (candidate) => candidate.toLowerCase() === selected.toLowerCase(),
+        );
+        const value = selectedMatchesUser ? selected : String(user.email || user.id || user.name || "").trim();
+        if (!value) return "";
+        return `<option value="${escapeHtml(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(
+          supportUserDisplayLabel(user),
+        )}</option>`;
+      })
+      .join("")}
   `;
 }
 
@@ -3504,9 +4434,9 @@ function render() {
           </label>
           <label>
             Assigned To
-            <input id="support-filter-assigned-to" value="${escapeHtml(
-              state.supportFilters.assignedTo,
-            )}" placeholder="All" />
+            <select id="support-filter-assigned-to">
+              ${renderAssignedToFilterOptions()}
+            </select>
           </label>
           <label>
             Agent Name
@@ -3746,6 +4676,7 @@ function bindEvents() {
       state.accessDenied = false;
       persistFilters();
       await loadFilterOptions({ silent: true });
+      await loadSupportUserOptions({ silent: true });
       await loadSessions();
       await loadSelectedSession();
     });
@@ -3757,6 +4688,7 @@ function bindEvents() {
       state.supportFilters.tenantId = String(event.target.value ?? "").trim();
       state.accessDenied = false;
       persistFilters();
+      await loadSupportUserOptions({ silent: true });
       await loadSessions();
       await loadSelectedSession();
     });
@@ -3846,6 +4778,22 @@ function bindEvents() {
     adminRefreshButton.addEventListener("click", loadAdminPanelData);
   }
 
+  const adminUsersTab = document.querySelector("#admin-tab-users");
+  if (adminUsersTab) {
+    adminUsersTab.addEventListener("click", () => {
+      state.adminActiveTab = "users";
+      render();
+    });
+  }
+
+  const adminDepartmentsTab = document.querySelector("#admin-tab-departments");
+  if (adminDepartmentsTab) {
+    adminDepartmentsTab.addEventListener("click", () => {
+      state.adminActiveTab = "departments";
+      render();
+    });
+  }
+
   const adminUserCreateButton = document.querySelector("#admin-user-create-button");
   if (adminUserCreateButton) {
     adminUserCreateButton.addEventListener("click", () => openAdminUserDialog());
@@ -3863,6 +4811,24 @@ function bindEvents() {
     });
   });
 
+  document.querySelectorAll("[data-admin-user-invite]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await handleSupportUserAccountAction(button.getAttribute("data-admin-user-invite"), "invite");
+    });
+  });
+
+  document.querySelectorAll("[data-admin-user-reset]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await handleSupportUserAccountAction(button.getAttribute("data-admin-user-reset"), "reset");
+    });
+  });
+
+  document.querySelectorAll("[data-admin-user-role-notice]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await handleSupportUserAccountAction(button.getAttribute("data-admin-user-role-notice"), "role");
+    });
+  });
+
   document.querySelectorAll("[data-admin-department-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       const department = state.adminDepartments.find(
@@ -3877,6 +4843,14 @@ function bindEvents() {
       await handleDeleteDepartment(button.getAttribute("data-admin-department-delete"));
     });
   });
+
+  const showInactiveDepartmentsInput = document.querySelector("#admin-show-inactive-departments-input");
+  if (showInactiveDepartmentsInput) {
+    showInactiveDepartmentsInput.addEventListener("change", (event) => {
+      state.adminShowInactiveDepartments = Boolean(event.target.checked);
+      render();
+    });
+  }
 
   const adminDialogCancelButton = document.querySelector("#admin-dialog-cancel");
   if (adminDialogCancelButton) {
@@ -3905,18 +4879,20 @@ function bindEvents() {
     if (!input) return;
     const eventName = isCheckbox || input.tagName === "SELECT" ? "change" : "input";
     input.addEventListener(eventName, (event) => {
-      state.adminDialog[key] = isCheckbox ? Boolean(event.target.checked) : event.target.value;
-      if (key === "id" && state.adminDialog.type === "department" && state.adminDialog.mode === "create") {
-        render();
+      if (key === "phone") {
+        const formattedPhone = formatPhoneInput(event.target.value);
+        event.target.value = formattedPhone;
+        state.adminDialog.phone = formattedPhone;
+      } else {
+        state.adminDialog[key] = isCheckbox ? Boolean(event.target.checked) : event.target.value;
       }
+      updateAdminDialogValidationUi();
     });
   };
   bindAdminDialogInput("#admin-user-name-input", "name");
   bindAdminDialogInput("#admin-user-email-input", "email");
   bindAdminDialogInput("#admin-user-phone-input", "phone");
   bindAdminDialogInput("#admin-user-role-input", "role");
-  bindAdminDialogInput("#admin-user-products-input", "allowedProducts");
-  bindAdminDialogInput("#admin-user-tenants-input", "allowedTenantIds");
   bindAdminDialogInput("#admin-user-active-input", "active", true);
   bindAdminDialogInput("#admin-department-id-input", "id");
   bindAdminDialogInput("#admin-department-label-input", "label");
@@ -3931,6 +4907,34 @@ function bindEvents() {
         .map((option) => option.value)
         .filter(Boolean)
         .join(", ");
+      updateAdminDialogValidationUi();
+    });
+  }
+
+  const adminUserProductsInput = document.querySelector("#admin-user-products-input");
+  if (adminUserProductsInput) {
+    adminUserProductsInput.addEventListener("change", (event) => {
+      state.adminDialog.allowedProducts = [...event.target.selectedOptions]
+        .map((option) => option.value)
+        .filter(Boolean)
+        .join(", ");
+      updateAdminDialogValidationUi();
+    });
+  }
+
+  const adminUserTenantsInput = document.querySelector("#admin-user-tenants-input");
+  if (adminUserTenantsInput) {
+    adminUserTenantsInput.addEventListener("change", (event) => {
+      const values = [...event.target.selectedOptions].map((option) => option.value).filter(Boolean);
+      state.adminDialog.allowedTenantIds = values.includes(ALL_TENANTS_VALUE)
+        ? ALL_TENANTS_VALUE
+        : values.join(", ");
+      if (values.includes(ALL_TENANTS_VALUE)) {
+        [...event.target.options].forEach((option) => {
+          option.selected = option.value === ALL_TENANTS_VALUE;
+        });
+      }
+      updateAdminDialogValidationUi();
     });
   }
 
@@ -3944,6 +4948,18 @@ function bindEvents() {
   const takeoverButton = document.querySelector("#takeover-button");
   if (takeoverButton) {
     takeoverButton.addEventListener("click", handleTakeOver);
+  }
+
+  const takeoverInlineButton = document.querySelector("#takeover-inline-button");
+  if (takeoverInlineButton) {
+    takeoverInlineButton.addEventListener("click", handleTakeOver);
+  }
+
+  const focusReplyButton = document.querySelector("#focus-reply-button");
+  if (focusReplyButton) {
+    focusReplyButton.addEventListener("click", () => {
+      focusElement("#reply-input");
+    });
   }
 
   const assignSessionButton = document.querySelector("#assign-session-button");

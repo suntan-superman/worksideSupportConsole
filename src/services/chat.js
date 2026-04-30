@@ -272,7 +272,21 @@ function normalizeSession(rawSession) {
     "",
   );
   const productKey = String(pickFirst(session.productKey, session.product, "generic"));
-  const tenantId = String(pickFirst(session.tenantId, session.tenant_id, "default"));
+  const tenantId = String(
+    pickFirst(
+      session.tenantId,
+      session.tenant_id,
+      session.tenant,
+      session.tenant?.id,
+      session.tenant?._id,
+      session.tenant?.tenantId,
+      session.customerId,
+      session.customer_id,
+      session.customer?.id,
+      session.customer?._id,
+      session.customer?.tenantId,
+    ),
+  );
   const tenantName = pickFirst(
     session.tenantName,
     session.customerName,
@@ -699,6 +713,7 @@ export async function listSupportUsers({ product, tenantId, departmentId, admin 
       query: {
         product,
         tenantId,
+        tenant: tenantId,
         departmentId,
       },
     },
@@ -708,13 +723,15 @@ export async function listSupportUsers({ product, tenantId, departmentId, admin 
   return normalizeSupportUsers(payload);
 }
 
-export async function listSupportDepartments({ product, admin = false } = {}) {
+export async function listSupportDepartments({ product, tenantId, admin = false } = {}) {
   const payload = await requestSupport(
     admin ? "/support/admin/departments" : "/support/departments",
     {
       method: "GET",
       query: {
         product,
+        tenantId,
+        tenant: tenantId,
       },
     },
     admin ? "list_admin_support_departments" : "list_support_departments",
@@ -745,6 +762,36 @@ export async function updateSupportUser(userId, body = {}) {
     "update_admin_support_user",
   );
   return normalizeSupportUser(pickFirst(payload?.user, payload?.item, payload?.data?.user, payload?.data, payload));
+}
+
+export async function sendSupportUserInvite(userId) {
+  return requestSupport(
+    `/support/admin/users/${encodeURIComponent(userId)}/invite`,
+    {
+      method: "POST",
+    },
+    "send_admin_support_user_invite",
+  );
+}
+
+export async function sendSupportUserPasswordReset(userId) {
+  return requestSupport(
+    `/support/admin/users/${encodeURIComponent(userId)}/reset-password`,
+    {
+      method: "POST",
+    },
+    "send_admin_support_user_password_reset",
+  );
+}
+
+export async function sendSupportUserRoleNotice(userId) {
+  return requestSupport(
+    `/support/admin/users/${encodeURIComponent(userId)}/notify-role-change`,
+    {
+      method: "POST",
+    },
+    "send_admin_support_user_role_notice",
+  );
 }
 
 export async function createSupportDepartment(body = {}) {
@@ -791,7 +838,7 @@ export async function getSupportSession(sessionId, tenantId, product) {
     `/support/sessions/${sessionId}`,
     {
       method: "GET",
-      query: { tenantId, product },
+      query: { tenantId, tenant: tenantId, product },
     },
     "get_support_session",
   );
@@ -802,6 +849,7 @@ export async function getSupportSession(sessionId, tenantId, product) {
 export async function takeOverSession({ sessionId, tenantId, product, agentName, agentId }) {
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
     agentId: agentId ?? agentName,
     agentName,
@@ -822,6 +870,7 @@ export async function takeOverSession({ sessionId, tenantId, product, agentName,
 export async function sendAgentReply({ sessionId, tenantId, product, message, agentName }) {
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
     text: message,
     message,
@@ -850,6 +899,7 @@ export async function closeSupportSession({
 }) {
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
   };
   if (reason) body.reason = reason;
@@ -871,6 +921,7 @@ export async function closeSupportSession({
 export async function escalateSupportSession({ sessionId, tenantId, product, reason, note }) {
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
     reason: reason ?? "user_requested_human",
     note,
@@ -900,6 +951,7 @@ export async function saveLeadForSession({
   const nameParts = splitLeadName(name);
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
     name,
     email,
@@ -952,6 +1004,7 @@ export async function saveInquiryForSession({
 }) {
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
     message: messageSummary,
     summary: messageSummary,
@@ -992,6 +1045,7 @@ export async function sendTranscriptForSession({
 }) {
   const body = {
     tenantId,
+    tenant: tenantId,
     product,
     to,
     includeAiMessages,
@@ -1028,6 +1082,7 @@ export async function assignSupportSession({
       method: "POST",
       body: {
         tenantId,
+        tenant: tenantId,
         product,
         departmentId,
         assignedToUserId,

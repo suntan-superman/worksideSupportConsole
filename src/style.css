@@ -126,6 +126,31 @@ body {
   gap: 8px;
 }
 
+.auth-mode-tab {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f6f9fd;
+  color: #365474;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 9px 11px;
+}
+
+.auth-mode-tab.is-active {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.auth-inline-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .password-input-wrap {
   position: relative;
 }
@@ -779,6 +804,98 @@ body {
   background: #f6faff;
 }
 
+.live-transfer-panel {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 16px;
+  display: grid;
+  gap: 10px;
+  background: #fbfdff;
+}
+
+.live-transfer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.live-transfer-header div {
+  display: grid;
+  gap: 3px;
+}
+
+.live-transfer-header span,
+.live-transfer-step span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.live-transfer-header strong {
+  font-size: 0.98rem;
+  color: var(--text);
+}
+
+.live-transfer-header p {
+  margin: 0;
+  max-width: 520px;
+  color: #7f4b00;
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.live-transfer-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.live-transfer-step {
+  border: 1px solid #d6e1ee;
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  background: #fff;
+}
+
+.live-transfer-step strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.live-transfer-step p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.live-transfer-step.is-complete {
+  border-color: #b7dfc8;
+  background: #ecfaf2;
+}
+
+.live-transfer-step.is-current {
+  border-color: #a9c8f6;
+  background: #eef6ff;
+}
+
+.live-transfer-step.is-pending {
+  background: #f8fbff;
+}
+
+.live-transfer-request {
+  border: 1px solid #d6e1ee;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.live-transfer-action-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .transfer-request-form {
   border-bottom: 1px solid var(--line);
   padding: 10px 16px;
@@ -798,6 +915,13 @@ body {
 
 .transfer-request-form textarea {
   resize: vertical;
+}
+
+.transfer-request-form.live-transfer-request {
+  border: 1px solid #d6e1ee;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f7fbff;
 }
 
 .transfer-action-note {
@@ -1054,6 +1178,10 @@ body {
   border-color: #bfd9ff;
 }
 
+.detail-warning {
+  margin: 12px 16px 0;
+}
+
 .confirm-overlay {
   position: fixed;
   inset: 0;
@@ -1205,6 +1333,28 @@ body {
   flex-wrap: wrap;
 }
 
+.admin-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.admin-chip {
+  border: 1px solid #c8d8eb;
+  border-radius: 999px;
+  background: #f2f7fd;
+  color: #1e4f82;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 7px;
+}
+
+.admin-chip:hover {
+  background: #deedff;
+}
+
 .admin-panel h3,
 .admin-panel h4 {
   margin: 0;
@@ -1245,13 +1395,57 @@ body {
   margin: 0;
 }
 
-.admin-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
+.admin-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.admin-grid section {
+.admin-inline-toggle {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-tabs {
+  border-bottom: 1px solid #dbe6f2;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.admin-tab {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: #365474;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 10px 12px;
+}
+
+.admin-tab span {
+  border-radius: 999px;
+  background: #e8f1fb;
+  color: #1f4e86;
+  display: inline-flex;
+  font-size: 0.72rem;
+  margin-left: 6px;
+  padding: 2px 7px;
+}
+
+.admin-tab.is-active {
+  background: #fff;
+  border-color: #dbe6f2;
+  color: var(--text);
+  margin-bottom: -1px;
+}
+
+.admin-tab-panel {
   display: grid;
   gap: 8px;
 }
@@ -1395,7 +1589,17 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .admin-grid {
+  .live-transfer-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .live-transfer-header p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .live-transfer-steps {
     grid-template-columns: 1fr;
   }
 
