@@ -1038,6 +1038,23 @@ function friendlyAssignmentOptionsError(message) {
   return text;
 }
 
+function friendlyAdminPanelError(error) {
+  const parsed = parseChatApiError(error);
+  if (parsed.code === "SUPPORT_CONSOLE_ACCESS_DENIED" || parsed.requiredAction === "add_support_user") {
+    return "Your account is not set up for support administration. Ask a super admin to add or reactivate your support user profile.";
+  }
+  if (parsed.status === 403 || parsed.code === "FORBIDDEN") {
+    return "You are signed in, but your role does not include permission to manage support users or departments.";
+  }
+  if (parsed.status === 401 || isAuthErrorCode(parsed.code)) {
+    return "Your sign-in session expired. Sign in again to manage support settings.";
+  }
+  if (parsed.status >= 500) {
+    return "Support admin settings could not be loaded right now. Try again in a moment.";
+  }
+  return parsed.message || "Unable to load support admin settings.";
+}
+
 function updateAdminDialogValidationUi() {
   if (!state.adminDialog.open) return;
   const validation = adminDialogValidation();
@@ -2313,8 +2330,7 @@ async function loadAdminPanelData() {
     state.supportUsers = mergeSupportUserOptions(state.supportUsers, users, supportUsersFromSessions(state.sessions));
     syncAgentNameFromAuthenticatedUser(state.supportUsers);
   } catch (error) {
-    const parsed = parseChatApiError(error);
-    state.adminError = parsed.message || "Unable to load support admin data.";
+    state.adminError = friendlyAdminPanelError(error);
   } finally {
     state.adminLoading = false;
     render();
