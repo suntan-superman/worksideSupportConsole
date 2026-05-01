@@ -58,6 +58,14 @@ const SESSION_STATUS_OPTIONS = [
   "after_hours_intake",
   "closed",
 ];
+const SESSION_SORT_OPTIONS = [
+  { value: "last_interaction", label: "Last interaction" },
+  { value: "initial_date", label: "Initial date" },
+];
+const SORT_DIRECTION_OPTIONS = [
+  { value: "desc", label: "Newest first" },
+  { value: "asc", label: "Oldest first" },
+];
 const SUPPORT_CONSOLE_ROLES = new Set([
   "super_admin",
   "admin",
@@ -100,6 +108,8 @@ const DETAIL_EDITABLE_IDS = new Set([
   "support-filter-status",
   "support-filter-urgency",
   "support-filter-assigned-to",
+  "support-filter-sort-by",
+  "support-filter-sort-direction",
   "agent-input",
   "assign-department-input",
   "assign-user-input",
@@ -136,12 +146,18 @@ const DETAIL_EDITABLE_IDS = new Set([
 
 function normalizeFilterState(raw) {
   const value = raw && typeof raw === "object" ? raw : {};
+  const sortBy = String(value.sortBy ?? "last_interaction").trim() || "last_interaction";
+  const sortDirection = String(value.sortDirection ?? "desc").trim().toLowerCase() || "desc";
   return {
     product: String(value.product ?? "").trim(),
     tenantId: String(value.tenantId ?? "").trim(),
     status: String(value.status ?? "").trim(),
     urgency: String(value.urgency ?? "").trim(),
     assignedTo: String(value.assignedTo ?? "").trim(),
+    sortBy: SESSION_SORT_OPTIONS.some((option) => option.value === sortBy) ? sortBy : "last_interaction",
+    sortDirection: SORT_DIRECTION_OPTIONS.some((option) => option.value === sortDirection)
+      ? sortDirection
+      : "desc",
   };
 }
 
@@ -1986,17 +2002,14 @@ function filterSessions(sessions, filter, search) {
 
 function sortSessionsByPriority(sessions) {
   const list = [...(sessions ?? [])];
-  const score = (session) => {
-    if (session.status === "closed") return 4;
-    if (isSessionEscalated(session)) return 1;
-    if (isHumanSession(session)) return 2;
-    if (session.status === "after_hours_intake") return 3;
-    return 3.5;
-  };
+  const sortBy = String(state.supportFilters.sortBy ?? "last_interaction").trim();
+  const sortDirection = String(state.supportFilters.sortDirection ?? "desc").trim().toLowerCase();
+  const dateField = sortBy === "startedAt" || sortBy === "initial_date" ? "createdAt" : "updatedAt";
+  const direction = sortDirection === "asc" ? 1 : -1;
 
   list.sort((a, b) => {
-    const scoreDelta = score(a) - score(b);
-    if (scoreDelta !== 0) return scoreDelta;
+    const dateDelta = Date.parse(a[dateField] ?? 0) - Date.parse(b[dateField] ?? 0);
+    if (dateDelta !== 0) return dateDelta * direction;
     return Date.parse(b.updatedAt ?? 0) - Date.parse(a.updatedAt ?? 0);
   });
 
@@ -2560,6 +2573,8 @@ async function loadSessions({ silent = false } = {}) {
       status: filters.status || undefined,
       urgency: filters.urgency || undefined,
       assignedTo: filters.assignedTo || undefined,
+      sortBy: filters.sortBy || "last_interaction",
+      sortDirection: filters.sortDirection || "desc",
       search: state.search || undefined,
     });
 
@@ -4579,6 +4594,26 @@ function render() {
             </select>
           </label>
           <label>
+            Sort By
+            <select id="support-filter-sort-by">
+              ${SESSION_SORT_OPTIONS.map(
+                (option) => `<option value="${option.value}" ${
+                  state.supportFilters.sortBy === option.value ? "selected" : ""
+                }>${escapeHtml(option.label)}</option>`,
+              ).join("")}
+            </select>
+          </label>
+          <label>
+            Order
+            <select id="support-filter-sort-direction">
+              ${SORT_DIRECTION_OPTIONS.map(
+                (option) => `<option value="${option.value}" ${
+                  state.supportFilters.sortDirection === option.value ? "selected" : ""
+                }>${escapeHtml(option.label)}</option>`,
+              ).join("")}
+            </select>
+          </label>
+          <label>
             Agent Name
             <input id="agent-input" value="${escapeHtml(state.agentName)}" placeholder="Your name" />
           </label>
@@ -4860,6 +4895,28 @@ function bindEvents() {
   if (assignedFilterInput) {
     assignedFilterInput.addEventListener("change", async (event) => {
       state.supportFilters.assignedTo = String(event.target.value ?? "").trim();
+      state.accessDenied = false;
+      persistFilters();
+      await loadSessions();
+      await loadSelectedSession();
+    });
+  }
+
+  const sortByInput = document.querySelector("#support-filter-sort-by");
+  if (sortByInput) {
+    sortByInput.addEventListener("change", async (event) => {
+      state.supportFilters.sortBy = String(event.target.value ?? "last_interaction").trim() || "last_interaction";
+      state.accessDenied = false;
+      persistFilters();
+      await loadSessions();
+      await loadSelectedSession();
+    });
+  }
+
+  const sortDirectionInput = document.querySelector("#support-filter-sort-direction");
+  if (sortDirectionInput) {
+    sortDirectionInput.addEventListener("change", async (event) => {
+      state.supportFilters.sortDirection = String(event.target.value ?? "desc").trim() || "desc";
       state.accessDenied = false;
       persistFilters();
       await loadSessions();
