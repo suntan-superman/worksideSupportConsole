@@ -411,11 +411,28 @@ body {
   width: 100%;
 }
 
+.session-sort-controls {
+  border-top: 1px solid #edf2f8;
+  border-bottom: 1px solid #edf2f8;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  background: #fbfdff;
+}
+
+.session-sort-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
 .session-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 12px 12px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;

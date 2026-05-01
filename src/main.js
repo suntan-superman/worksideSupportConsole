@@ -4594,26 +4594,6 @@ function render() {
             </select>
           </label>
           <label>
-            Sort By
-            <select id="support-filter-sort-by">
-              ${SESSION_SORT_OPTIONS.map(
-                (option) => `<option value="${option.value}" ${
-                  state.supportFilters.sortBy === option.value ? "selected" : ""
-                }>${escapeHtml(option.label)}</option>`,
-              ).join("")}
-            </select>
-          </label>
-          <label>
-            Order
-            <select id="support-filter-sort-direction">
-              ${SORT_DIRECTION_OPTIONS.map(
-                (option) => `<option value="${option.value}" ${
-                  state.supportFilters.sortDirection === option.value ? "selected" : ""
-                }>${escapeHtml(option.label)}</option>`,
-              ).join("")}
-            </select>
-          </label>
-          <label>
             Agent Name
             <input id="agent-input" value="${escapeHtml(state.agentName)}" placeholder="Your name" />
           </label>
@@ -4660,6 +4640,28 @@ function render() {
             <input id="search-input" placeholder="Search by lead, preview, or session id" value="${escapeHtml(
               state.search,
             )}" />
+          </div>
+          <div class="session-sort-controls">
+            <label>
+              Sort By
+              <select id="support-filter-sort-by">
+                ${SESSION_SORT_OPTIONS.map(
+                  (option) => `<option value="${option.value}" ${
+                    state.supportFilters.sortBy === option.value ? "selected" : ""
+                  }>${escapeHtml(option.label)}</option>`,
+                ).join("")}
+              </select>
+            </label>
+            <label>
+              Order
+              <select id="support-filter-sort-direction">
+                ${SORT_DIRECTION_OPTIONS.map(
+                  (option) => `<option value="${option.value}" ${
+                    state.supportFilters.sortDirection === option.value ? "selected" : ""
+                  }>${escapeHtml(option.label)}</option>`,
+                ).join("")}
+              </select>
+            </label>
           </div>
           <div class="session-list">${renderSessionList(filteredSessions)}</div>
         </aside>
