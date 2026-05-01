@@ -151,6 +151,11 @@ body {
   flex-wrap: wrap;
 }
 
+.auth-remember-row {
+  justify-content: flex-start;
+  color: var(--muted);
+}
+
 .password-input-wrap {
   position: relative;
 }

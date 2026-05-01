@@ -46,6 +46,8 @@ const SELECTED_SESSION_KEY = "workside_selected_session";
 const FILTERS_STORAGE_KEY = "workside_support_filters";
 const FILTER_OWNER_STORAGE_KEY = "workside_support_filter_owner";
 const USER_ROLE_STORAGE_KEY = "workside_support_role";
+const REMEMBER_AUTH_EMAIL_KEY = "workside_support_remember_auth_email";
+const REMEMBER_AUTH_EMAIL_ENABLED_KEY = "workside_support_remember_auth_email_enabled";
 const ALL_TENANTS_VALUE = "__all__";
 
 const URGENCY_OPTIONS = ["low", "medium", "high"];
@@ -56,6 +58,15 @@ const SESSION_STATUS_OPTIONS = [
   "after_hours_intake",
   "closed",
 ];
+const SUPPORT_CONSOLE_ROLES = new Set([
+  "super_admin",
+  "admin",
+  "support_admin",
+  "support_agent",
+  "sales_agent",
+  "dispatcher",
+  "viewer",
+]);
 const INTENT_OPTIONS = ["sales", "support", "booking", "general"];
 const ESCALATION_REASONS = [
   "user_requested_human",
@@ -172,6 +183,11 @@ function isSuperAdminRole() {
   return String(state.userRole ?? "").toLowerCase() === "super_admin";
 }
 
+function hasSupportConsoleRole() {
+  const role = String(state.userRole ?? "").trim().toLowerCase();
+  return SUPPORT_CONSOLE_ROLES.has(role);
+}
+
 async function refreshUserRole() {
   const authRef = window?.firebaseAuth;
   const currentUser = authRef?.currentUser;
@@ -256,9 +272,10 @@ const state = {
   isAuthenticated: false,
   authError: "",
   authTokenDraft: getStoredToken(),
-  authEmail: "",
+  authEmail: localStorage.getItem(REMEMBER_AUTH_EMAIL_KEY) ?? "",
   authPassword: "",
   authPasswordVisible: false,
+  authRememberMe: localStorage.getItem(REMEMBER_AUTH_EMAIL_ENABLED_KEY) === "true",
   authMode: "password",
   authOtpCode: "",
   authOtpSent: false,
@@ -860,6 +877,41 @@ function syncStoredFiltersToAuthenticatedUser() {
   persistFilters();
 }
 
+function findCurrentSupportUserRecord(users = []) {
+  const email = currentAuthEmail();
+  if (!email) return null;
+  return (
+    (Array.isArray(users) ? users : []).find(
+      (user) => normalizeComparableEmail(user.email) === email && user.active !== false,
+    ) ?? null
+  );
+}
+
+async function verifySupportConsoleAccess() {
+  await refreshUserRole();
+  if (isSuperAdminRole()) {
+    return true;
+  }
+
+  try {
+    const users = await listSupportUsers({});
+    const normalizedUsers = mergeSupportUserOptions(users);
+    state.supportUsers = normalizedUsers;
+    const supportUser = findCurrentSupportUserRecord(normalizedUsers);
+    if (supportUser) {
+      if (supportUser.role && !state.userRole) {
+        state.userRole = String(supportUser.role).trim();
+        localStorage.setItem(USER_ROLE_STORAGE_KEY, state.userRole);
+      }
+      return hasSupportConsoleRole();
+    }
+  } catch {
+    // Treat inability to load a support-user authorization record as not authorized.
+  }
+
+  return false;
+}
+
 function hasSendableTranscriptMessages(session) {
   if (state.messages.some((message) => String(message.body ?? "").trim())) {
     return true;
@@ -1136,6 +1188,39 @@ function getFriendlyPasswordLoginError(error) {
   return message || "Unable to sign in. Check your credentials and try again.";
 }
 
+function persistRememberedAuthEmail() {
+  const email = String(state.authEmail ?? "").trim();
+  if (state.authRememberMe && email) {
+    localStorage.setItem(REMEMBER_AUTH_EMAIL_ENABLED_KEY, "true");
+    localStorage.setItem(REMEMBER_AUTH_EMAIL_KEY, email);
+    return;
+  }
+  localStorage.removeItem(REMEMBER_AUTH_EMAIL_ENABLED_KEY);
+  localStorage.removeItem(REMEMBER_AUTH_EMAIL_KEY);
+}
+
+async function rejectUnauthorizedSupportConsoleLogin() {
+  const email = String(state.authEmail || currentAuthEmail() || "").trim();
+  await signOutAllAuth();
+  stopRealtimeAndPolling();
+  state.isAuthenticated = false;
+  state.authBlocked = false;
+  state.authMessage = "";
+  state.authError =
+    "This account is not authorized for the Workside Support Console. Ask a super admin to add it as an active support user.";
+  state.authTokenDraft = "";
+  state.authEmail = email;
+  state.authPassword = "";
+  state.authPasswordVisible = false;
+  state.authOtpCode = "";
+  state.authOtpSent = false;
+  state.authBusy = false;
+  state.accessDenied = false;
+  state.userRole = "";
+  localStorage.removeItem(USER_ROLE_STORAGE_KEY);
+  render();
+}
+
 async function completeAuthenticatedStartup() {
   state.isAuthenticated = true;
   clearAuthBlockedState();
@@ -1147,7 +1232,11 @@ async function completeAuthenticatedStartup() {
     // Non-fatal: continue with current token and allow request layer fallback behavior.
   }
   syncStoredFiltersToAuthenticatedUser();
-  await refreshUserRole();
+  const authorized = await verifySupportConsoleAccess();
+  if (!authorized) {
+    await rejectUnauthorizedSupportConsoleLogin();
+    return;
+  }
   syncAgentNameFromAuthenticatedUser();
   if (!state.userRole) {
     setTimeout(async () => {
@@ -1188,6 +1277,7 @@ async function handleFirebaseLogin() {
     render();
     await signInWithFirebaseCredentials(email, password);
     state.authTokenDraft = getStoredToken();
+    persistRememberedAuthEmail();
     await completeAuthenticatedStartup();
   } catch (error) {
     state.authError = getFriendlyPasswordLoginError(error);
@@ -1263,6 +1353,7 @@ async function handleVerifyOtp() {
     }
     state.authTokenDraft = getStoredToken();
     state.authOtpCode = "";
+    persistRememberedAuthEmail();
     await completeAuthenticatedStartup();
   } catch (error) {
     state.authError = getFriendlyLoginActionError(error, "Unable to verify one-time code.");
@@ -1285,7 +1376,7 @@ async function handleLogout() {
   state.authMessage = "";
   state.authError = "";
   state.authTokenDraft = "";
-  state.authEmail = "";
+  state.authEmail = state.authRememberMe ? localStorage.getItem(REMEMBER_AUTH_EMAIL_KEY) ?? state.authEmail : "";
   state.authPassword = "";
   state.authPasswordVisible = false;
   state.authMode = "password";
@@ -1416,6 +1507,10 @@ function renderAuthScreen() {
                         One-time code
                         <input id="auth-otp-input" type="text" inputmode="numeric" autocomplete="one-time-code" value="${escapeHtml(state.authOtpCode)}" placeholder="6-digit code" />
                       </label>
+                      <label class="checkbox-row auth-remember-row">
+                        <input id="auth-remember-input" type="checkbox" ${state.authRememberMe ? "checked" : ""} />
+                        Remember this email
+                      </label>
                       <div class="auth-inline-actions">
                         <button id="auth-send-otp-button" class="button" type="button" ${state.authBusy ? "disabled" : ""}>${state.authOtpSent ? "Resend Code" : "Send Code"}</button>
                         <button id="firebase-login-button" class="button button-primary" type="submit" ${state.authBusy ? "disabled" : ""}>Verify & Sign In</button>
@@ -1442,6 +1537,10 @@ function renderAuthScreen() {
                           </button>
                         </div>
                       </label>
+                      <label class="checkbox-row auth-remember-row">
+                        <input id="auth-remember-input" type="checkbox" ${state.authRememberMe ? "checked" : ""} />
+                        Remember this email
+                      </label>
                       <div class="auth-inline-actions">
                         <button id="auth-reset-password-button" class="button button-quiet" type="button" ${state.authBusy ? "disabled" : ""}>Forgot password?</button>
                         <button id="firebase-login-button" class="button button-primary" type="submit" ${state.authBusy ? "disabled" : ""}>Sign In</button>
@@ -1464,6 +1563,17 @@ function bindAuthEvents() {
   if (emailInput) {
     emailInput.addEventListener("input", (event) => {
       state.authEmail = event.target.value;
+      if (state.authRememberMe) {
+        persistRememberedAuthEmail();
+      }
+    });
+  }
+
+  const rememberInput = document.querySelector("#auth-remember-input");
+  if (rememberInput) {
+    rememberInput.addEventListener("change", (event) => {
+      state.authRememberMe = Boolean(event.target.checked);
+      persistRememberedAuthEmail();
     });
   }
 
