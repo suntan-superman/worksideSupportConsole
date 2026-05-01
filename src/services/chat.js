@@ -491,7 +491,9 @@ function normalizeSession(rawSession) {
       session.started_at,
       session.initialDate,
       session.initial_date,
-      new Date().toISOString(),
+      session.updatedAt,
+      session.updated_at,
+      "",
     ),
     updatedAt: pickFirst(
       session.updatedAt,
@@ -504,7 +506,9 @@ function normalizeSession(rawSession) {
       session.last_message_at,
       session.createdAt,
       session.created_at,
-      new Date().toISOString(),
+      session.startedAt,
+      session.started_at,
+      "",
     ),
   };
 }

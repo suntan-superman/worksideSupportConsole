@@ -2603,6 +2603,7 @@ async function loadSessions({ silent = false } = {}) {
   if (!state.isAuthenticated) return;
   if (state.loadingSessions) return;
   state.loadingSessions = true;
+  let shouldRender = !silent;
   if (!silent) render();
 
   try {
@@ -2631,6 +2632,7 @@ async function loadSessions({ silent = false } = {}) {
       return;
     }
 
+    shouldRender = true;
     state.sessions = sortedSessions;
     state.lastSessionListFingerprint = nextFingerprint;
     state.supportUsers = mergeSupportUserOptions(
@@ -2696,7 +2698,7 @@ async function loadSessions({ silent = false } = {}) {
     }
   } finally {
     state.loadingSessions = false;
-    if (!silent || !isUserEditingDetailForm()) {
+    if (shouldRender && (!silent || !isUserEditingDetailForm())) {
       render();
     }
   }
@@ -2706,6 +2708,7 @@ async function loadSelectedSession({ silent = false } = {}) {
   if (!state.isAuthenticated) return;
   if (!state.selectedSessionId || state.loadingSession) return;
   state.loadingSession = true;
+  let shouldRender = !silent;
   if (!silent) render();
 
   try {
@@ -2725,6 +2728,7 @@ async function loadSelectedSession({ silent = false } = {}) {
       return;
     }
     state.lastSessionDetailFingerprint = nextFingerprint;
+    shouldRender = true;
     applySessionDetail(detail);
   } catch (error) {
     if (!silent) {
@@ -2732,7 +2736,7 @@ async function loadSelectedSession({ silent = false } = {}) {
     }
   } finally {
     state.loadingSession = false;
-    if (!silent || !isUserEditingDetailForm()) {
+    if (shouldRender && (!silent || !isUserEditingDetailForm())) {
       render();
     }
   }
