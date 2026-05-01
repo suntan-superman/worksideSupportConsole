@@ -484,8 +484,28 @@ function normalizeSession(rawSession) {
       typeof allowAnonymousNoFollowUpClose === "boolean" ? allowAnonymousNoFollowUpClose : null,
     lastMessagePreview: String(lastMessagePreview ?? ""),
     messageCount: Number.isFinite(messageCount) ? messageCount : 0,
-    createdAt: pickFirst(session.createdAt, session.created_at, new Date().toISOString()),
-    updatedAt: pickFirst(session.updatedAt, session.updated_at, session.createdAt, new Date().toISOString()),
+    createdAt: pickFirst(
+      session.createdAt,
+      session.created_at,
+      session.startedAt,
+      session.started_at,
+      session.initialDate,
+      session.initial_date,
+      new Date().toISOString(),
+    ),
+    updatedAt: pickFirst(
+      session.updatedAt,
+      session.updated_at,
+      session.lastInteractionAt,
+      session.last_interaction_at,
+      session.lastInteraction,
+      session.last_interaction,
+      session.lastMessageAt,
+      session.last_message_at,
+      session.createdAt,
+      session.created_at,
+      new Date().toISOString(),
+    ),
   };
 }
 

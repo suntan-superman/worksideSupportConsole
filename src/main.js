@@ -282,6 +282,8 @@ const state = {
   transferDirty: false,
   banner: null,
   lastUpdatedAt: null,
+  lastSessionListFingerprint: "",
+  lastSessionDetailFingerprint: "",
   realtimeStatus: "offline",
   lastTransferQueueCount: 0,
   knownSessionIds: new Set(),
@@ -1433,6 +1435,8 @@ async function handleLogout() {
   state.sessions = [];
   state.selectedSession = null;
   state.messages = [];
+  state.lastSessionListFingerprint = "";
+  state.lastSessionDetailFingerprint = "";
   state.intakePanelStateBySession = {};
   state.closeRequirementsBySession = {};
   state.noFollowUpDisabledScopes = {};
@@ -2016,6 +2020,42 @@ function sortSessionsByPriority(sessions) {
   return list;
 }
 
+function sessionListFingerprint(sessions) {
+  return (sessions ?? [])
+    .map((session) =>
+      [
+        session.id,
+        session.status,
+        session.createdAt,
+        session.updatedAt,
+        session.leadName,
+        session.leadEmail,
+        session.assignedToUserId,
+        session.assignedToName,
+        session.departmentId,
+        session.lastMessagePreview,
+      ]
+        .map((value) => String(value ?? ""))
+        .join("~"),
+    )
+    .join("|");
+}
+
+function sessionDetailFingerprint(detail) {
+  const session = detail?.session ?? {};
+  const messages = detail?.messages ?? [];
+  return [
+    sessionListFingerprint(session?.id ? [session] : []),
+    messages
+      .map((message) =>
+        [message.id, message.sender, message.body, message.createdAt]
+          .map((value) => String(value ?? ""))
+          .join("~"),
+      )
+      .join("|"),
+  ].join("::");
+}
+
 function hasRequiredLeadIdentity(session) {
   const name = String(session?.leadName ?? "").trim();
   const email = String(session?.leadEmail ?? "").trim();
@@ -2583,7 +2623,16 @@ async function loadSessions({ silent = false } = {}) {
     const previousSessionIds = state.knownSessionIds;
     const nextSessionIds = new Set(sessions.map((session) => session.id).filter(Boolean));
     const newSessionCount = [...nextSessionIds].filter((id) => !previousSessionIds.has(id)).length;
-    state.sessions = sortSessionsByPriority(sessions);
+    const sortedSessions = sortSessionsByPriority(sessions);
+    const nextFingerprint = sessionListFingerprint(sortedSessions);
+    const listUnchanged = nextFingerprint === state.lastSessionListFingerprint;
+    if (silent && listUnchanged) {
+      state.knownSessionIds = nextSessionIds;
+      return;
+    }
+
+    state.sessions = sortedSessions;
+    state.lastSessionListFingerprint = nextFingerprint;
     state.supportUsers = mergeSupportUserOptions(
       state.supportUsers,
       state.adminUsers,
@@ -2671,6 +2720,11 @@ async function loadSelectedSession({ silent = false } = {}) {
     const detail = await getSupportSession(state.selectedSessionId, context.tenantId, context.product);
     clearAuthBlockedState();
     state.accessDenied = false;
+    const nextFingerprint = sessionDetailFingerprint(detail);
+    if (silent && nextFingerprint === state.lastSessionDetailFingerprint) {
+      return;
+    }
+    state.lastSessionDetailFingerprint = nextFingerprint;
     applySessionDetail(detail);
   } catch (error) {
     if (!silent) {
@@ -2689,6 +2743,7 @@ async function handleSessionSelect(sessionId) {
   state.selectedSessionId = sessionId;
   state.selectedSession = null;
   state.messages = [];
+  state.lastSessionDetailFingerprint = "";
   state.replyDraft = "";
   state.leadDirty = false;
   state.inquiryDirty = false;
@@ -4680,7 +4735,6 @@ function render() {
 
   bindEvents();
   restoreSessionListScroll();
-  scrollSelectedSessionIntoView();
   restoreDetailPanelScroll();
   restoreDetailFormFocusState(detailFocusState);
 }
