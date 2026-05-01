@@ -67,6 +67,69 @@ function pickFirst(...values) {
   return undefined;
 }
 
+function isMeaningfulText(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return false;
+  return !["undefined", "null", "[object object]"].includes(text.toLowerCase());
+}
+
+function pickTextFirst(...values) {
+  for (const value of values) {
+    if (isMeaningfulText(value)) {
+      return String(value).trim();
+    }
+  }
+  return "";
+}
+
+function normalizeMessageSender(rawValue, fallback = "system") {
+  const raw = String(rawValue ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (
+    raw === "visitor" ||
+    raw === "user" ||
+    raw === "customer" ||
+    raw === "contact" ||
+    raw === "end_user" ||
+    raw === "incoming" ||
+    raw === "inbound" ||
+    raw === "message.visitor" ||
+    raw === "visitor_message" ||
+    raw === "customer_message" ||
+    raw === "user_message"
+  ) {
+    return "visitor";
+  }
+  if (
+    raw === "assistant" ||
+    raw === "ai" ||
+    raw === "bot" ||
+    raw === "ai_assistant" ||
+    raw === "outgoing_ai" ||
+    raw === "assistant_message" ||
+    raw === "ai_message" ||
+    raw === "ai_response" ||
+    raw === "bot_reply"
+  ) {
+    return "ai";
+  }
+  if (
+    raw === "human" ||
+    raw === "agent" ||
+    raw === "support" ||
+    raw === "support_agent" ||
+    raw === "operator" ||
+    raw === "human_agent" ||
+    raw === "agent_message" ||
+    raw === "human_reply" ||
+    raw === "support.reply" ||
+    raw === "agent_reply_sent"
+  ) {
+    return "agent";
+  }
+  return fallback;
+}
+
 function splitLeadName(fullName) {
   const clean = String(fullName ?? "").trim();
   if (!clean) {
@@ -520,19 +583,37 @@ function normalizeSupportDepartments(payload) {
 
 function normalizeMessage(rawMessage, fallbackTenantId, fallbackSessionId) {
   const message = rawMessage ?? {};
-  const senderRaw = String(pickFirst(message.sender, message.role, message.from, message.senderType, "system")).toLowerCase();
+  const body = pickTextFirst(
+    message.body,
+    message.message,
+    message.text,
+    message.content,
+    message.reply,
+    message.displayText,
+  );
+  if (!body) return null;
 
-  let sender = "system";
-  if (senderRaw === "visitor" || senderRaw === "user" || senderRaw === "customer") sender = "visitor";
-  if (senderRaw === "assistant" || senderRaw === "ai" || senderRaw === "bot") sender = "ai";
-  if (senderRaw === "human" || senderRaw === "agent" || senderRaw === "support") sender = "agent";
+  const senderRaw = pickFirst(
+    message.sender,
+    message.role,
+    message.from,
+    message.senderType,
+    message.authorType,
+    message.author,
+    message.source,
+    message.direction,
+    message.type,
+    message.eventType,
+    message.messageType,
+  );
+  const sender = normalizeMessageSender(senderRaw);
 
   return {
     id: pickFirst(message.id, message._id, crypto.randomUUID()),
     sessionId: pickFirst(message.sessionId, message.session_id, fallbackSessionId),
     tenantId: pickFirst(message.tenantId, message.tenant_id, fallbackTenantId),
     sender,
-    body: String(pickFirst(message.body, message.message, message.text, "")),
+    body,
     createdAt: pickFirst(message.createdAt, message.created_at, new Date().toISOString()),
   };
 }
@@ -543,7 +624,7 @@ function normalizeActionMessage(rawAction, fallbackTenantId, fallbackSessionId) 
   const data = action.data && typeof action.data === "object" ? action.data : {};
   const payload = action.payload && typeof action.payload === "object" ? action.payload : {};
   const result = action.result && typeof action.result === "object" ? action.result : {};
-  const body = pickFirst(
+  const body = pickTextFirst(
     action.message,
     action.text,
     action.body,
@@ -553,27 +634,17 @@ function normalizeActionMessage(rawAction, fallbackTenantId, fallbackSessionId) 
     payload.message,
     payload.text,
     result.message,
-    "",
   );
   if (!body) return null;
 
-  let sender = "system";
-  if (actionType === "reply" || actionType === "support.reply" || actionType === "agent_reply_sent") {
-    sender = "agent";
-  }
-  if (actionType === "visitor" || actionType === "message.visitor") {
-    sender = "visitor";
-  }
-  if (actionType === "ai" || actionType === "assistant") {
-    sender = "ai";
-  }
+  const sender = normalizeMessageSender(actionType);
 
   return {
     id: String(pickFirst(action.id, action._id, `action-${crypto.randomUUID()}`)),
     sessionId: pickFirst(action.sessionId, action.session_id, fallbackSessionId),
     tenantId: pickFirst(action.tenantId, action.tenant_id, fallbackTenantId),
     sender,
-    body: String(body),
+    body,
     createdAt: pickFirst(action.createdAt, action.created_at, action.at, new Date().toISOString()),
   };
 }
@@ -597,7 +668,7 @@ function normalizeSessionAndMessages(payload) {
       normalizeMessage(item, session.tenantId, session.id),
     ),
     ...normalizeActionMessages(actionsRaw, session.tenantId, session.id),
-  ];
+  ].filter(Boolean);
 
   messages.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
