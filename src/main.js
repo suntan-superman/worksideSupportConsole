@@ -2590,7 +2590,7 @@ async function loadSessions({ silent = false } = {}) {
       supportUsersFromSessions(state.sessions),
     );
     syncAgentNameFromAuthenticatedUser(state.supportUsers);
-    const shouldRevealSelectedSession = Boolean(state.selectedSessionId);
+    const selectedSessionBeforeRefresh = state.selectedSessionId;
     for (const session of state.sessions) {
       syncNoFollowUpScopeCapability(session);
       syncSessionCloseRequirements(session);
@@ -2618,23 +2618,25 @@ async function loadSessions({ silent = false } = {}) {
     state.knownSessionIds = nextSessionIds;
     state.lastTransferQueueCount = queueCount;
 
-    if (state.selectedSessionId && !state.sessions.some((session) => session.id === state.selectedSessionId)) {
+    const selectedSessionVisible = Boolean(
+      state.selectedSessionId && state.sessions.some((session) => session.id === state.selectedSessionId),
+    );
+
+    if (!silent && state.selectedSessionId && !selectedSessionVisible) {
       state.selectedSessionId = "";
       localStorage.removeItem(SELECTED_SESSION_KEY);
       state.selectedSession = null;
       state.messages = [];
     }
 
-    if (!state.selectedSessionId) {
-      const preferred =
-        state.sessions.find((session) => isSessionEscalated(session) && session.status !== "closed") ??
-        state.sessions[0];
+    if (!silent && !state.selectedSessionId) {
+      const preferred = state.sessions[0];
       if (preferred?.id) {
         state.selectedSessionId = preferred.id;
         localStorage.setItem(SELECTED_SESSION_KEY, preferred.id);
       }
     }
-    if (shouldRevealSelectedSession) {
+    if (selectedSessionBeforeRefresh && selectedSessionVisible) {
       setTimeout(() => {
         scrollSelectedSessionIntoView();
       }, 0);
