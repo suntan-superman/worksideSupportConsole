@@ -88,6 +88,11 @@ const ACCESS_DENIED_CODES = new Set([
   "GLOBAL_SCOPE_NOT_ALLOWED",
   "FILTER_ACCESS_DENIED",
 ]);
+const SUPPORT_CONSOLE_ACCESS_DENIED_CODES = new Set([
+  "SUPPORT_CONSOLE_ACCESS_DENIED",
+  "SUPPORT_USER_REQUIRED",
+  "SUPPORT_USER_INACTIVE",
+]);
 const POLLING_INTERVAL_MS = 5000;
 const DETAIL_EDITABLE_IDS = new Set([
   "support-filter-product",
@@ -1226,6 +1231,7 @@ async function completeAuthenticatedStartup() {
   clearAuthBlockedState();
   state.accessDenied = false;
   state.authError = "";
+  state.authBusy = false;
   try {
     await refreshStoredFirebaseToken(true);
   } catch {
@@ -1660,6 +1666,14 @@ async function handleChatApiError(contextLabel, error) {
     setStoredToken("");
     state.showDiagnostics = true;
     render();
+    return;
+  }
+
+  if (
+    SUPPORT_CONSOLE_ACCESS_DENIED_CODES.has(parsed.code) ||
+    parsed.requiredAction === "add_support_user"
+  ) {
+    await rejectUnauthorizedSupportConsoleLogin();
     return;
   }
 
@@ -5230,13 +5244,22 @@ async function bootstrap() {
 
   const persistedToken = getStoredToken();
   state.authTokenDraft = persistedToken;
-  state.isAuthenticated = Boolean(persistedToken);
 
-  render();
-
-  if (state.isAuthenticated) {
+  if (persistedToken) {
+    state.isAuthenticated = false;
+    state.authBusy = true;
+    state.authMessage = "Checking support console access...";
+    render();
     await completeAuthenticatedStartup();
+    if (!state.isAuthenticated) {
+      state.authBusy = false;
+      render();
+    }
+    return;
   }
+
+  state.isAuthenticated = false;
+  render();
 }
 
 window.addEventListener("beforeunload", () => {
