@@ -118,9 +118,12 @@ const DETAIL_EDITABLE_IDS = new Set([
   "assign-note-input",
   "transcript-to-input",
   "transcript-subject-input",
+  "transcript-customer-input",
+  "transcript-human-input",
   "transcript-ai-input",
   "transcript-agent-input",
   "transcript-system-input",
+  "transcript-internal-notes-input",
   "admin-user-name-input",
   "admin-user-email-input",
   "admin-user-phone-input",
@@ -355,9 +358,12 @@ const state = {
     open: false,
     to: "",
     subject: "Your conversation transcript",
-    includeAiMessages: true,
+    includeCustomerMessages: true,
+    includeHumanMessages: true,
+    includeAiMessages: false,
     includeAgentMessages: true,
     includeSystemMessages: false,
+    includeInternalNotes: false,
   },
   confirmDialog: {
     open: false,
@@ -1490,9 +1496,12 @@ async function handleLogout() {
     open: false,
     to: "",
     subject: "Your conversation transcript",
-    includeAiMessages: true,
+    includeCustomerMessages: true,
+    includeHumanMessages: true,
+    includeAiMessages: false,
     includeAgentMessages: true,
     includeSystemMessages: false,
+    includeInternalNotes: false,
   };
   state.accessDenied = false;
   state.userRole = "";
@@ -2358,9 +2367,16 @@ function updateDraftsFromSession(session, { force = false } = {}) {
   }
 }
 
-function applySessionDetail(detail, { forceDraftSync = false } = {}) {
+function applySessionDetail(detail, { forceDraftSync = false, preserveExistingMessages = false } = {}) {
+  const incomingMessages = Array.isArray(detail.messages) ? detail.messages : [];
+  const shouldPreserveMessages =
+    preserveExistingMessages &&
+    incomingMessages.length === 0 &&
+    state.selectedSession?.id === detail.session?.id &&
+    state.messages.length > 0;
+
   state.selectedSession = detail.session;
-  state.messages = detail.messages;
+  state.messages = shouldPreserveMessages ? state.messages : incomingMessages;
   upsertSession(detail.session);
   updateDraftsFromSession(detail.session, { force: forceDraftSync });
 
@@ -2863,7 +2879,7 @@ async function loadSelectedSession({ silent = false } = {}) {
     }
     state.lastSessionDetailFingerprint = nextFingerprint;
     shouldRender = true;
-    applySessionDetail(detail);
+    applySessionDetail(detail, { preserveExistingMessages: true });
   } catch (error) {
     if (!silent) {
       await handleChatApiError("Load session", error);
@@ -2923,7 +2939,7 @@ async function handleTakeOver() {
     });
 
     clearAuthBlockedState();
-    applySessionDetail(detail);
+    applySessionDetail(detail, { preserveExistingMessages: true });
     setBanner("success", "Live transfer accepted. You are now controlling this session.");
     focusElement("#reply-input");
   } catch (error) {
@@ -3201,9 +3217,12 @@ function handleOpenTranscriptDialog() {
     open: true,
     to: session.leadEmail,
     subject: "Your conversation transcript",
-    includeAiMessages: true,
+    includeCustomerMessages: true,
+    includeHumanMessages: true,
+    includeAiMessages: false,
     includeAgentMessages: true,
     includeSystemMessages: false,
+    includeInternalNotes: false,
   };
   render();
 }
@@ -3292,9 +3311,12 @@ async function handleSendTranscript() {
       product: session.productKey || undefined,
       to,
       subject: subject || undefined,
+      includeCustomerMessages: state.transcriptDialog.includeCustomerMessages,
+      includeHumanMessages: state.transcriptDialog.includeHumanMessages,
       includeAiMessages: state.transcriptDialog.includeAiMessages,
       includeAgentMessages: state.transcriptDialog.includeAgentMessages,
       includeSystemMessages: state.transcriptDialog.includeSystemMessages,
+      includeInternalNotes: state.transcriptDialog.includeInternalNotes,
     });
     applySessionDetail(detail);
     state.transcriptDialog.open = false;
@@ -4430,6 +4452,10 @@ function renderAssignDialog() {
 
 function renderTranscriptDialog() {
   if (!state.transcriptDialog.open) return "";
+  const fullTranscriptSelected =
+    state.transcriptDialog.includeAiMessages ||
+    state.transcriptDialog.includeSystemMessages ||
+    state.transcriptDialog.includeInternalNotes;
   return `
     <div id="transcript-dialog-backdrop" class="confirm-overlay" role="presentation">
       <section class="confirm-dialog assign-dialog" role="dialog" aria-modal="true" aria-labelledby="transcript-dialog-title">
@@ -4444,11 +4470,11 @@ function renderTranscriptDialog() {
             </div>
             <div class="dialog-context-item">
               <span>Safety</span>
-              <strong>Customer-safe only</strong>
+              <strong>${fullTranscriptSelected ? "Internal/full transcript" : "Customer-safe default"}</strong>
             </div>
           </div>
           <p class="dialog-help">
-            The backend should exclude internal notes, diagnostics, audit entries, and private routing metadata.
+            Customer-safe transcripts include customer and human support messages. AI, system events, and internal notes are off by default.
           </p>
           <label>
             Contact email
@@ -4469,16 +4495,24 @@ function renderTranscriptDialog() {
             />
           </label>
           <label class="checkbox-row">
-            <input id="transcript-ai-input" type="checkbox" ${state.transcriptDialog.includeAiMessages ? "checked" : ""} />
-            Include AI messages
+            <input id="transcript-customer-input" type="checkbox" ${state.transcriptDialog.includeCustomerMessages ? "checked" : ""} />
+            Include customer/prospect messages
           </label>
           <label class="checkbox-row">
-            <input id="transcript-agent-input" type="checkbox" ${state.transcriptDialog.includeAgentMessages ? "checked" : ""} />
-            Include agent messages
+            <input id="transcript-human-input" type="checkbox" ${state.transcriptDialog.includeHumanMessages ? "checked" : ""} />
+            Include human support messages
+          </label>
+          <label class="checkbox-row">
+            <input id="transcript-ai-input" type="checkbox" ${state.transcriptDialog.includeAiMessages ? "checked" : ""} />
+            Include AI assistant messages
           </label>
           <label class="checkbox-row">
             <input id="transcript-system-input" type="checkbox" ${state.transcriptDialog.includeSystemMessages ? "checked" : ""} />
-            Include system-visible messages
+            Include system events
+          </label>
+          <label class="checkbox-row">
+            <input id="transcript-internal-notes-input" type="checkbox" ${state.transcriptDialog.includeInternalNotes ? "checked" : ""} />
+            Include internal notes
           </label>
           <footer class="confirm-dialog-actions">
             <button id="transcript-dialog-cancel" class="button button-quiet" type="button">Cancel</button>
@@ -5176,6 +5210,22 @@ function bindEvents() {
     });
   }
 
+  const transcriptCustomerInput = document.querySelector("#transcript-customer-input");
+  if (transcriptCustomerInput) {
+    transcriptCustomerInput.addEventListener("change", (event) => {
+      state.transcriptDialog.includeCustomerMessages = Boolean(event.target.checked);
+    });
+  }
+
+  const transcriptHumanInput = document.querySelector("#transcript-human-input");
+  if (transcriptHumanInput) {
+    transcriptHumanInput.addEventListener("change", (event) => {
+      const includeHumanMessages = Boolean(event.target.checked);
+      state.transcriptDialog.includeHumanMessages = includeHumanMessages;
+      state.transcriptDialog.includeAgentMessages = includeHumanMessages;
+    });
+  }
+
   const transcriptAiInput = document.querySelector("#transcript-ai-input");
   if (transcriptAiInput) {
     transcriptAiInput.addEventListener("change", (event) => {
@@ -5194,6 +5244,13 @@ function bindEvents() {
   if (transcriptSystemInput) {
     transcriptSystemInput.addEventListener("change", (event) => {
       state.transcriptDialog.includeSystemMessages = Boolean(event.target.checked);
+    });
+  }
+
+  const transcriptInternalNotesInput = document.querySelector("#transcript-internal-notes-input");
+  if (transcriptInternalNotesInput) {
+    transcriptInternalNotesInput.addEventListener("change", (event) => {
+      state.transcriptDialog.includeInternalNotes = Boolean(event.target.checked);
     });
   }
 

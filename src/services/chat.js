@@ -867,7 +867,7 @@ function normalizeSessionList(payload) {
 }
 
 async function ensureDetail(normalized, sessionId, tenantId, product) {
-  if (normalized?.session?.id) {
+  if (normalized?.session?.id && normalized.messages?.length) {
     return normalized;
   }
   return getSupportSession(sessionId, tenantId, product);
@@ -1309,9 +1309,12 @@ export async function sendTranscriptForSession({
   tenantId,
   product,
   to,
-  includeAiMessages = true,
+  includeCustomerMessages = true,
+  includeHumanMessages = true,
+  includeAiMessages = false,
   includeAgentMessages = true,
   includeSystemMessages = false,
+  includeInternalNotes = false,
   subject,
 }) {
   const body = {
@@ -1319,20 +1322,38 @@ export async function sendTranscriptForSession({
     tenant: tenantId,
     product,
     to,
+    includeCustomerMessages,
+    includeHumanMessages,
     includeAiMessages,
     includeAgentMessages,
     includeSystemMessages,
+    includeInternalNotes,
   };
   if (subject) body.subject = subject;
 
-  const payload = await requestSupport(
-    `/support/sessions/${sessionId}/send-transcript`,
-    {
-      method: "POST",
-      body,
-    },
-    "send_session_transcript",
-  );
+  let payload;
+  try {
+    payload = await requestSupport(
+      `/support/sessions/${sessionId}/transcript`,
+      {
+        method: "POST",
+        body,
+      },
+      "send_session_transcript",
+    );
+  } catch (error) {
+    if (error?.status !== 404 && error?.status !== 405) {
+      throw error;
+    }
+    payload = await requestSupport(
+      `/support/sessions/${sessionId}/send-transcript`,
+      {
+        method: "POST",
+        body,
+      },
+      "send_session_transcript",
+    );
+  }
 
   return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
 }

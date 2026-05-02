@@ -1,18 +1,195 @@
-Added backend support for session sorting.
+Transcript Goal
 
-GET /support/sessions now accepts:
+Generate a clean, customer-facing email transcript by default. It should include what the customer/prospect said and what the human support person said. It should not include internal notes, assignment events, diagnostics, backend system events, or repetitive AI/system automation unless explicitly requested.
 
-sortBy=startedAt
-sortBy=initial_date
-sortBy=updatedAt
-sortBy=last_interaction
-and:
+Endpoint
 
-sortDirection=desc
-sortDirection=asc
-So the frontend can call, for example:
+Use the existing route:
 
-/support/sessions?product=merxus&sortBy=startedAt&sortDirection=desc
-or:
+POST /support/sessions/:sessionId/transcript
+Recommended request body:
 
-/support/sessions?product=merxus&sortBy=last_interaction&sortDirection=desc
+{
+  "tenantId": "tenant_or_customer_id",
+  "product": "merxus",
+  "to": "customer@example.com",
+  "subject": "Your conversation transcript",
+  "includeCustomerMessages": true,
+  "includeHumanMessages": true,
+  "includeAiMessages": false,
+  "includeSystemMessages": false,
+  "includeInternalNotes": false
+}
+Default Behavior
+
+If the frontend does not send options, backend should use these defaults:
+
+{
+  "includeCustomerMessages": true,
+  "includeHumanMessages": true,
+  "includeAiMessages": false,
+  "includeSystemMessages": false,
+  "includeInternalNotes": false
+}
+Message Inclusion Rules
+
+Include these by default:
+
+visitor
+customer
+contact
+user
+prospect
+human
+agent
+support
+support_agent
+Exclude these by default:
+
+ai
+assistant
+bot
+system
+internal
+diagnostic
+assignment
+status_event
+note
+Do include the customer’s handoff request, for example:
+
+Customer: I would like to talk to a person.
+Do not include internal transfer events like:
+
+System: Team notified
+System: Transfer requested
+System: Human accepted
+Recommended Email Format
+
+Subject:
+
+Your conversation transcript
+HTML body:
+
+<h1>Your conversation transcript</h1>
+
+<p>
+  <strong>Date:</strong> May 2, 2026<br>
+  <strong>Customer:</strong> Jerry Seinfeld<br>
+  <strong>Email:</strong> junk@anyryde.com
+</p>
+
+<h2>Conversation</h2>
+
+<div>
+  <p><strong>Customer</strong><br>I would like to talk to a person.</p>
+  <p><strong>Support</strong><br>How can I help you today?</p>
+</div>
+Plain-text fallback:
+
+Your conversation transcript
+
+Date: May 2, 2026
+Customer: Jerry Seinfeld
+Email: junk@anyryde.com
+
+Conversation
+
+Customer:
+I would like to talk to a person.
+
+Support:
+How can I help you today?
+Required Metadata
+
+Use available lead/contact fields:
+
+{
+  "leadName": "Jerry Seinfeld",
+  "leadEmail": "junk@anyryde.com",
+  "leadPhone": "(661) 555-1111",
+  "company": "Optional",
+  "sessionId": "CA...",
+  "product": "merxus",
+  "tenantName": "Jerry Seinfeld"
+}
+If leadName is missing, fall back to:
+
+tenantName
+organizationName
+contactName
+"Customer"
+If email is missing, reject customer-facing transcript send with:
+
+{
+  "error": {
+    "code": "CONTACT_EMAIL_REQUIRED",
+    "message": "A contact email is required before sending a transcript.",
+    "requiredAction": "collect_email"
+  }
+}
+Full/Internal Transcript Option
+
+Support an admin/internal export mode:
+
+{
+  "includeCustomerMessages": true,
+  "includeHumanMessages": true,
+  "includeAiMessages": true,
+  "includeSystemMessages": true,
+  "includeInternalNotes": true
+}
+This should be used only for internal/admin recipients, not for customer-facing transcript emails.
+
+Security Rules
+
+Require Firebase auth.
+Require active support-console user.
+Enforce product and tenant/customer access.
+Never allow a user to send transcripts for sessions outside their scope.
+Do not include internal notes in customer-facing transcripts.
+Do not include sensitive diagnostics, auth claims, API errors, or backend traces.
+Sanitize HTML content before sending.
+Always generate a plain-text fallback body.
+Audit Logging
+
+On successful send, persist:
+
+{
+  "sessionId": "CA...",
+  "to": "customer@example.com",
+  "subject": "Your conversation transcript",
+  "sentAt": "2026-05-02T...",
+  "sentByUserId": "support_user_id",
+  "sentByName": "Mark",
+  "sentByEmail": "mark@example.com",
+  "includeCustomerMessages": true,
+  "includeHumanMessages": true,
+  "includeAiMessages": false,
+  "includeSystemMessages": false,
+  "includeInternalNotes": false,
+  "provider": "sendgrid",
+  "messageId": "sendgrid_message_id"
+}
+Then return that receipt from both:
+
+POST /support/sessions/:sessionId/transcript
+GET /support/sessions/:sessionId
+as:
+
+{
+  "lastTranscript": {
+    "sentAt": "2026-05-02T...",
+    "to": "customer@example.com",
+    "provider": "sendgrid",
+    "messageId": "..."
+  }
+}
+Acceptance Criteria
+
+Default customer transcript includes only customer/prospect and human support conversation.
+AI/system/internal messages are excluded by default.
+Customer’s “talk to a person” message is included.
+Transcript has customer name/email metadata.
+Missing email returns CONTACT_EMAIL_REQUIRED.
+Internal notes are never sent to customer unless explicitly using internal/admin mode.
+Send receipt appears in session detail after sending.
