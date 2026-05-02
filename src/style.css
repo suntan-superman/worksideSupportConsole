@@ -341,6 +341,133 @@ body {
   min-height: 0;
 }
 
+.active-conversations-tray {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 35, 70, 0.05);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.active-conversations-tray header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.active-conversations-tray h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.active-conversations-tray header span {
+  border-radius: 999px;
+  background: #e8f1fb;
+  color: #1f4e86;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 2px 7px;
+}
+
+.active-conversation-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.active-conversation-tab {
+  border: 1px solid #d5e2f0;
+  border-left-width: 5px;
+  border-radius: 10px;
+  min-width: 220px;
+  max-width: 280px;
+  padding: 9px 10px;
+  background: #fbfdff;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.active-conversation-tab:hover,
+.active-conversation-tab.is-selected {
+  border-color: #8fb8f0;
+  background: #f3f8ff;
+}
+
+.active-conversation-tab.is-waiting-support {
+  border-left-color: #d97904;
+}
+
+.active-conversation-tab.is-waiting-contact {
+  border-left-color: #0b7a47;
+}
+
+.active-conversation-tab.is-idle {
+  border-left-color: #b42334;
+}
+
+.active-conversation-tab.is-needs-takeover {
+  border-left-color: #0b5ed7;
+}
+
+.active-conversation-contact {
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-conversation-meta,
+.active-conversation-status {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.active-conversation-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.active-conversation-status i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #6d8399;
+}
+
+.is-waiting-support .active-conversation-status i {
+  background: #d97904;
+}
+
+.is-waiting-contact .active-conversation-status i {
+  background: #0b7a47;
+}
+
+.is-idle .active-conversation-status i {
+  background: #b42334;
+}
+
+.is-needs-takeover .active-conversation-status i {
+  background: #0b5ed7;
+}
+
+.active-conversation-status strong {
+  margin-left: auto;
+  border-radius: 999px;
+  background: #d12f45;
+  color: #fff;
+  font-size: 0.72rem;
+  min-width: 20px;
+  padding: 2px 6px;
+  text-align: center;
+}
+
 .sessions-panel,
 .detail-panel {
   border: 1px solid var(--line);

@@ -396,6 +396,38 @@ function normalizeSession(rawSession) {
     session.assignedToUserEmail,
     assignedToRaw?.email,
   );
+  const lastMessageSender = pickFirst(
+    session.lastMessageSender,
+    session.last_message_sender,
+    session.lastMessage?.sender,
+    session.lastMessage?.senderType,
+    session.lastMessage?.role,
+    session.lastInteractionSender,
+    session.last_interaction_sender,
+    session.lastInteraction?.sender,
+  );
+  const lastAgentReplyAt = pickFirst(
+    session.lastAgentReplyAt,
+    session.last_agent_reply_at,
+    session.support?.lastAgentReplyAt,
+    session.lastAgentMessageAt,
+  );
+  const lastVisitorMessageAt = pickFirst(
+    session.lastVisitorMessageAt,
+    session.last_visitor_message_at,
+    session.support?.lastVisitorMessageAt,
+    session.lastCustomerMessageAt,
+  );
+  const unreadForAssignee = Number(
+    pickFirst(
+      session.unreadForAssignee,
+      session.unread_for_assignee,
+      session.unreadCount,
+      session.unread_count,
+      session.support?.unreadForAssignee,
+      0,
+    ),
+  );
   const departmentId = pickFirst(session.departmentId, session.support?.departmentId, session.assignment?.departmentId);
   const departmentLabel = pickFirst(
     session.departmentLabel,
@@ -434,6 +466,10 @@ function normalizeSession(rawSession) {
     assignedToUserId: assignedToUserId ? String(assignedToUserId) : "",
     assignedToName: assignedToName ? String(assignedToName) : "",
     assignedToEmail: assignedToEmail ? String(assignedToEmail) : "",
+    lastMessageSender: lastMessageSender ? String(lastMessageSender).toLowerCase() : "",
+    lastAgentReplyAt: lastAgentReplyAt ? String(lastAgentReplyAt) : "",
+    lastVisitorMessageAt: lastVisitorMessageAt ? String(lastVisitorMessageAt) : "",
+    unreadForAssignee: Number.isFinite(unreadForAssignee) ? unreadForAssignee : 0,
     departmentId: departmentId ? String(departmentId) : "",
     departmentLabel: departmentLabel ? String(departmentLabel) : "",
     assignmentHistory,

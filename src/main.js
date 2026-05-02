@@ -66,6 +66,7 @@ const SORT_DIRECTION_OPTIONS = [
   { value: "desc", label: "Newest first" },
   { value: "asc", label: "Oldest first" },
 ];
+const ACTIVE_CONVERSATION_IDLE_MS = 60_000;
 const SUPPORT_CONSOLE_ROLES = new Set([
   "super_admin",
   "admin",
@@ -287,6 +288,7 @@ const state = {
   realtimeStatus: "offline",
   lastTransferQueueCount: 0,
   knownSessionIds: new Set(),
+  activeConversationUnread: {},
   sessionSoundReady: false,
   showDiagnostics: false,
   authBlocked: false,
@@ -1437,6 +1439,7 @@ async function handleLogout() {
   state.messages = [];
   state.lastSessionListFingerprint = "";
   state.lastSessionDetailFingerprint = "";
+  state.activeConversationUnread = {};
   state.intakePanelStateBySession = {};
   state.closeRequirementsBySession = {};
   state.noFollowUpDisabledScopes = {};
@@ -2032,6 +2035,10 @@ function sessionListFingerprint(sessions) {
         session.leadEmail,
         session.assignedToUserId,
         session.assignedToName,
+        session.lastMessageSender,
+        session.lastAgentReplyAt,
+        session.lastVisitorMessageAt,
+        session.unreadForAssignee,
         session.departmentId,
         session.lastMessagePreview,
       ]
@@ -2054,6 +2061,115 @@ function sessionDetailFingerprint(detail) {
       )
       .join("|"),
   ].join("::");
+}
+
+function currentSupportUserCandidates() {
+  const authEmail = currentAuthEmail();
+  const agentName = String(state.agentName ?? "").trim().toLowerCase();
+  const currentUser = findCurrentSupportUserRecord(state.supportUsers) ?? findCurrentSupportUserRecord(state.adminUsers);
+  return [authEmail, agentName, currentUser?.id, currentUser?.email, currentUser?.name]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isSessionAssignedToCurrentUser(session) {
+  if (!session) return false;
+  const candidates = currentSupportUserCandidates();
+  if (!candidates.length) return false;
+  return [session.assignedToUserId, session.assignedToEmail, session.assignedToName]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .some((value) => candidates.includes(value));
+}
+
+function activeConversationSessions() {
+  return state.sessions.filter(
+    (session) =>
+      session.status !== "closed" &&
+      (isHumanSession(session) || isSessionEscalated(session)) &&
+      isSessionAssignedToCurrentUser(session),
+  );
+}
+
+function normalizedMessageSender(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (["visitor", "customer", "user", "contact", "incoming", "inbound"].includes(raw)) return "visitor";
+  if (["agent", "human", "support", "support_agent", "operator"].includes(raw)) return "agent";
+  if (["ai", "assistant", "bot"].includes(raw)) return "ai";
+  return raw;
+}
+
+function activeConversationState(session) {
+  if (isSessionEscalated(session) && !isHumanSession(session)) {
+    return {
+      className: "needs-takeover",
+      label: "Needs takeover",
+    };
+  }
+
+  const lastActivityAt = Date.parse(session.updatedAt || session.lastVisitorMessageAt || session.lastAgentReplyAt || 0);
+  if (Number.isFinite(lastActivityAt) && Date.now() - lastActivityAt > ACTIVE_CONVERSATION_IDLE_MS) {
+    return {
+      className: "idle",
+      label: "No recent activity",
+    };
+  }
+
+  const sender = normalizedMessageSender(session.lastMessageSender);
+  if (sender === "visitor") {
+    return {
+      className: "waiting-support",
+      label: "Waiting on support",
+    };
+  }
+  if (sender === "agent") {
+    return {
+      className: "waiting-contact",
+      label: "Waiting on contact",
+    };
+  }
+  return {
+    className: "active",
+    label: "Active",
+  };
+}
+
+function activeConversationUnreadCount(session) {
+  const localUnread = Number(state.activeConversationUnread[session.id] ?? 0);
+  const backendUnread = Number(session.unreadForAssignee ?? 0);
+  return Math.max(localUnread, Number.isFinite(backendUnread) ? backendUnread : 0);
+}
+
+function processActiveConversationActivity(nextSessions, { silent = false } = {}) {
+  const previousById = new Map(state.sessions.map((session) => [session.id, session]));
+  const nextUnread = { ...state.activeConversationUnread };
+  let shouldPlayActivitySound = false;
+
+  for (const session of nextSessions) {
+    if (!session?.id || !isSessionAssignedToCurrentUser(session)) continue;
+    if (session.id === state.selectedSessionId) {
+      delete nextUnread[session.id];
+      continue;
+    }
+
+    const previous = previousById.get(session.id);
+    const sender = normalizedMessageSender(session.lastMessageSender);
+    const activityChanged =
+      previous &&
+      (previous.updatedAt !== session.updatedAt ||
+        previous.lastVisitorMessageAt !== session.lastVisitorMessageAt ||
+        previous.lastMessageSender !== session.lastMessageSender);
+
+    if (silent && activityChanged && sender === "visitor") {
+      nextUnread[session.id] = Math.max(1, Number(nextUnread[session.id] ?? 0) + 1);
+      shouldPlayActivitySound = true;
+    }
+  }
+
+  state.activeConversationUnread = nextUnread;
+  if (shouldPlayActivitySound) {
+    playNewSessionSound();
+  }
 }
 
 function hasRequiredLeadIdentity(session) {
@@ -2632,6 +2748,7 @@ async function loadSessions({ silent = false } = {}) {
       return;
     }
 
+    processActiveConversationActivity(sortedSessions, { silent });
     shouldRender = true;
     state.sessions = sortedSessions;
     state.lastSessionListFingerprint = nextFingerprint;
@@ -2747,6 +2864,7 @@ async function handleSessionSelect(sessionId) {
   state.selectedSessionId = sessionId;
   state.selectedSession = null;
   state.messages = [];
+  delete state.activeConversationUnread[sessionId];
   state.lastSessionDetailFingerprint = "";
   state.replyDraft = "";
   state.leadDirty = false;
@@ -4570,6 +4688,50 @@ function renderAssignedToFilterOptions() {
   `;
 }
 
+function renderActiveConversationsTray() {
+  const conversations = activeConversationSessions();
+  if (conversations.length <= 1) return "";
+
+  return `
+    <section class="active-conversations-tray" aria-label="Active conversations">
+      <header>
+        <h2>Active Conversations</h2>
+        <span>${conversations.length}</span>
+      </header>
+      <div class="active-conversation-tabs" role="tablist" aria-label="Assigned active sessions">
+        ${conversations
+          .map((session) => {
+            const contactLabel =
+              session.leadName || inferredContactNameForSession(session) || session.leadEmail || "Anonymous";
+            const tenantLabel = session.tenantName || session.organizationName || session.tenantId || "Unknown";
+            const activity = activeConversationState(session);
+            const unread = activeConversationUnreadCount(session);
+            const selected = session.id === state.selectedSessionId;
+            return `
+              <button
+                class="active-conversation-tab ${selected ? "is-selected" : ""} is-${activity.className}"
+                type="button"
+                role="tab"
+                aria-selected="${selected ? "true" : "false"}"
+                data-active-session-id="${escapeHtml(session.id)}"
+              >
+                <span class="active-conversation-contact">${escapeHtml(contactLabel)}</span>
+                <span class="active-conversation-meta">
+                  ${escapeHtml(abbreviateMiddle(tenantLabel, { max: 22, keep: 6 }))} · ${escapeHtml(formatTimestamp(session.updatedAt))}
+                </span>
+                <span class="active-conversation-status">
+                  <i aria-hidden="true"></i>${escapeHtml(activity.label)}
+                  ${unread ? `<strong>${escapeHtml(String(unread))}</strong>` : ""}
+                </span>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
 function render() {
   captureSessionListScroll();
   captureDetailPanelScroll();
@@ -4690,6 +4852,8 @@ function render() {
           ? `<div class="banner banner-warning">You are signed in, but your account does not have access to support sessions.</div>`
           : ""
       }
+
+      ${renderActiveConversationsTray()}
 
       <main class="layout">
         <aside class="sessions-panel">
@@ -5002,6 +5166,12 @@ function bindEvents() {
   document.querySelectorAll("[data-session-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       await handleSessionSelect(button.getAttribute("data-session-id"));
+    });
+  });
+
+  document.querySelectorAll("[data-active-session-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await handleSessionSelect(button.getAttribute("data-active-session-id"));
     });
   });
 
