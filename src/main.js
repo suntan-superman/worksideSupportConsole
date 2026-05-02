@@ -17,6 +17,7 @@ import {
   listSupportUsers,
   saveInquiryForSession,
   saveLeadForSession,
+  saveSupportNote,
   sendSupportUserInvite,
   sendSupportUserPasswordReset,
   sendSupportUserRoleNotice,
@@ -141,6 +142,7 @@ const DETAIL_EDITABLE_IDS = new Set([
   "inquiry-urgency-input",
   "inquiry-intent-input",
   "reply-input",
+  "resolution-note-input",
   "transfer-reason-input",
   "transfer-note-input",
 ]);
@@ -278,6 +280,7 @@ const state = {
     reason: "manual",
     note: "",
   },
+  resolutionNoteDraft: "",
   leadDirty: false,
   inquiryDirty: false,
   transferDirty: false,
@@ -756,6 +759,7 @@ const TRACE_LABELS = {
   delete_admin_support_department: "Delete Department",
   send_session_transcript: "Send Transcript",
   assign_support_session: "Assign Session",
+  save_support_note: "Save Note",
 };
 
 function setBanner(type, text) {
@@ -2051,11 +2055,19 @@ function sessionListFingerprint(sessions) {
 function sessionDetailFingerprint(detail) {
   const session = detail?.session ?? {};
   const messages = detail?.messages ?? [];
+  const supportNotes = session.supportNotes ?? [];
   return [
     sessionListFingerprint(session?.id ? [session] : []),
     messages
       .map((message) =>
         [message.id, message.sender, message.body, message.createdAt]
+          .map((value) => String(value ?? ""))
+          .join("~"),
+      )
+      .join("|"),
+    supportNotes
+      .map((note) =>
+        [note.id, note.type, note.note, note.createdAt, note.createdByName, note.createdByEmail]
           .map((value) => String(value ?? ""))
           .join("~"),
       )
@@ -2220,14 +2232,19 @@ function getActionReadiness(session, actionLabel = "this action") {
   return { ok: true, reason: "" };
 }
 
+function closeResolutionNote() {
+  return state.resolutionNoteDraft.trim() || "Closed by support console";
+}
+
 function buildCloseSessionAttempts(session) {
+  const resolutionNote = closeResolutionNote();
   return [
     {
       sessionId: state.selectedSessionId,
       tenantId: session?.tenantId || undefined,
       product: session?.productKey || undefined,
       reason: "closed_by_support",
-      resolutionNote: "Closed by support console",
+      resolutionNote,
       confirmNoFollowUp: false,
     },
     {
@@ -2235,14 +2252,14 @@ function buildCloseSessionAttempts(session) {
       tenantId: session?.tenantId || undefined,
       product: session?.productKey || undefined,
       reason: "manual",
-      resolutionNote: "Closed by support console",
+      resolutionNote,
       confirmNoFollowUp: false,
     },
     {
       sessionId: state.selectedSessionId,
       tenantId: session?.tenantId || undefined,
       product: session?.productKey || undefined,
-      resolutionNote: "Closed by support console",
+      resolutionNote,
       confirmNoFollowUp: false,
     },
   ];
@@ -2867,6 +2884,7 @@ async function handleSessionSelect(sessionId) {
   delete state.activeConversationUnread[sessionId];
   state.lastSessionDetailFingerprint = "";
   state.replyDraft = "";
+  state.resolutionNoteDraft = "";
   state.leadDirty = false;
   state.inquiryDirty = false;
   state.transferDirty = false;
@@ -3092,6 +3110,47 @@ async function loadAssignmentOptions(session) {
       error: friendlyAssignmentOptionsError(parsed.message),
     };
   } finally {
+    render();
+  }
+}
+
+async function handleSaveSupportNote() {
+  if (isViewerRole()) {
+    setBanner("warning", "Viewer role is read-only.");
+    return;
+  }
+  const session = getSelectedSessionContext();
+  if (!session) return;
+  if (!canUseSelectedSessionRoutes(session)) {
+    setBanner("warning", missingTenantContextMessage());
+    return;
+  }
+  const note = state.resolutionNoteDraft.trim();
+  if (!note) {
+    focusElement("#resolution-note-input");
+    setBanner("warning", "Enter an internal note before saving.");
+    return;
+  }
+
+  const context = getSessionActionContext(session);
+  state.busyAction = true;
+  render();
+  try {
+    const detail = await saveSupportNote({
+      sessionId: session.id,
+      tenantId: context.tenantId,
+      product: context.product,
+      note,
+      type: "internal",
+    });
+    applySessionDetail(detail);
+    state.resolutionNoteDraft = "";
+    setBanner("success", "Internal note saved.");
+  } catch (error) {
+    await handleChatApiError("Save note", error);
+  } finally {
+    state.busyAction = false;
+    await loadSessions({ silent: true });
     render();
   }
 }
@@ -3376,6 +3435,9 @@ async function handleCloseSession() {
     title: "Close Session?",
     lines: [
       "This will move the session to Closed.",
+      state.resolutionNoteDraft.trim()
+        ? `Resolution note: ${state.resolutionNoteDraft.trim()}`
+        : "No resolution note was added.",
       "You can still review history afterward, but the conversation will be treated as resolved.",
     ],
     confirmLabel: "Close Session",
@@ -3810,6 +3872,87 @@ function renderLiveTransferPanel({
   `;
 }
 
+function renderAssignedWorkPanel({ session, closeButtonEnabled, readOnly, routeContextAvailable, closeActionHint }) {
+  if (session.status === "closed") return "";
+  const assignedToCurrentUser = isSessionAssignedToCurrentUser(session);
+  if (!assignedToCurrentUser && !state.resolutionNoteDraft.trim()) return "";
+  const canEditNote = !readOnly && routeContextAvailable;
+  const noteDraft = state.resolutionNoteDraft.trim();
+  const noteHistory = Array.isArray(session.supportNotes) ? session.supportNotes : [];
+  const ownershipLabel = assignedToCurrentUser ? "Assigned to you" : "Work note";
+  const stateText =
+    session.status === "active_ai"
+      ? "AI still owns the live conversation. Request transfer only if you need to message the contact."
+      : isHumanSession(session)
+        ? "You can reply to the contact or close when the work is resolved."
+        : isSessionEscalated(session)
+          ? "Accept transfer before replying to the contact."
+          : "Use the note to document the outcome before closing.";
+
+  return `
+    <section class="assigned-work-panel" aria-label="Assigned work note">
+      <header>
+        <div>
+          <span>${escapeHtml(ownershipLabel)}</span>
+          <strong>${escapeHtml(stateText)}</strong>
+        </div>
+        <div class="assigned-work-actions">
+          <button
+            id="save-note-button"
+            class="button button-secondary"
+            type="button"
+            ${canEditNote && noteDraft ? "" : "disabled"}
+          >
+            Save Note
+          </button>
+          <button
+            id="close-with-note-button"
+            class="button button-quiet"
+            type="button"
+            title="${escapeHtml(closeActionHint)}"
+            ${closeButtonEnabled ? "" : "disabled"}
+          >
+            Close with Note
+          </button>
+        </div>
+      </header>
+      <label>
+        Resolution note
+        <textarea
+          id="resolution-note-input"
+          rows="3"
+          placeholder="Add internal context before closing this session."
+          ${canEditNote ? "" : "disabled"}
+        >${escapeHtml(state.resolutionNoteDraft)}</textarea>
+      </label>
+      <p>Save notes for internal context, or close with this note as the resolution note. It is not a message to the contact.</p>
+      ${
+        noteHistory.length
+          ? `
+            <div class="support-note-history" aria-label="Internal note history">
+              ${noteHistory
+                .map((item) => {
+                  const author = item.createdByName || item.createdByEmail || "Support";
+                  const typeLabel = item.type === "close_resolution" ? "Resolution" : "Internal";
+                  return `
+                    <article>
+                      <div>
+                        <strong>${escapeHtml(typeLabel)}</strong>
+                        <span>${escapeHtml(author)}${item.createdAt ? ` | ${escapeHtml(formatTimestamp(item.createdAt))}` : ""}</span>
+                      </div>
+                      <p>${escapeHtml(item.note)}</p>
+                    </article>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
 function renderDetailPanel() {
   if (!state.selectedSessionId) {
     return `
@@ -4018,6 +4161,14 @@ function renderDetailPanel() {
         transferReadiness,
         readOnly,
         routeContextAvailable,
+      })}
+
+      ${renderAssignedWorkPanel({
+        session,
+        closeButtonEnabled,
+        readOnly,
+        routeContextAvailable,
+        closeActionHint,
       })}
 
       ${renderSessionOperationsSummary(session)}
@@ -5430,6 +5581,16 @@ function bindEvents() {
     closeButton.addEventListener("click", handleCloseSession);
   }
 
+  const closeWithNoteButton = document.querySelector("#close-with-note-button");
+  if (closeWithNoteButton) {
+    closeWithNoteButton.addEventListener("click", handleCloseSession);
+  }
+
+  const saveNoteButton = document.querySelector("#save-note-button");
+  if (saveNoteButton) {
+    saveNoteButton.addEventListener("click", handleSaveSupportNote);
+  }
+
   const closeNoFollowUpButton = document.querySelector("#close-no-followup-button");
   if (closeNoFollowUpButton) {
     closeNoFollowUpButton.addEventListener("click", handleCloseNoFollowUp);
@@ -5453,6 +5614,13 @@ function bindEvents() {
   if (replyInput) {
     replyInput.addEventListener("input", (event) => {
       state.replyDraft = event.target.value;
+    });
+  }
+
+  const resolutionNoteInput = document.querySelector("#resolution-note-input");
+  if (resolutionNoteInput) {
+    resolutionNoteInput.addEventListener("input", (event) => {
+      state.resolutionNoteDraft = event.target.value;
     });
   }
 

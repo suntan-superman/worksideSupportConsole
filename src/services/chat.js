@@ -202,6 +202,28 @@ function normalizeTranscriptReceipt(value) {
   };
 }
 
+function normalizeSupportNote(entry) {
+  const item = entry && typeof entry === "object" ? entry : {};
+  const note = pickTextFirst(item.note, item.text, item.body, item.message, item.resolutionNote);
+  const createdAt = pickFirst(item.createdAt, item.created_at, item.at, item.timestamp);
+  if (!note && !createdAt) return null;
+
+  return {
+    id: String(pickFirst(item.id, item._id, `${createdAt ?? "note"}-${note.slice(0, 24)}`)),
+    type: String(pickFirst(item.type, item.noteType, "internal")),
+    note,
+    createdAt: createdAt ? String(createdAt) : "",
+    createdByUserId: String(pickFirst(item.createdByUserId, item.createdById, item.userId, "")),
+    createdByName: String(pickFirst(item.createdByName, item.createdByDisplayName, item.authorName, item.name, "")),
+    createdByEmail: String(pickFirst(item.createdByEmail, item.authorEmail, item.email, "")),
+  };
+}
+
+function normalizeSupportNotes(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => normalizeSupportNote(item)).filter(Boolean);
+}
+
 function normalizeSession(rawSession) {
   const session = rawSession ?? {};
   const id = pickFirst(session.id, session._id, session.sessionId);
@@ -453,6 +475,16 @@ function normalizeSession(rawSession) {
       },
     ),
   );
+  const supportNotes = normalizeSupportNotes(
+    pickFirst(
+      session.supportNotes,
+      session.notes,
+      session.internalNotes,
+      session.support?.notes,
+      session.support?.internalNotes,
+      [],
+    ),
+  );
 
   return {
     id: id ? String(id) : undefined,
@@ -478,6 +510,7 @@ function normalizeSession(rawSession) {
     lastTranscriptSentTo: transcriptReceipt?.to ?? "",
     lastTranscriptProvider: transcriptReceipt?.provider ?? "",
     lastTranscriptMessageId: transcriptReceipt?.messageId ?? "",
+    supportNotes,
     leadName,
     leadEmail,
     leadPhone,
@@ -1019,6 +1052,25 @@ export async function sendAgentReply({ sessionId, tenantId, product, message, ag
       body,
     },
     "send_agent_reply",
+  );
+
+  return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
+}
+
+export async function saveSupportNote({ sessionId, tenantId, product, note, type = "internal" }) {
+  const payload = await requestSupport(
+    `/support/sessions/${sessionId}/notes`,
+    {
+      method: "POST",
+      body: {
+        tenantId,
+        tenant: tenantId,
+        product,
+        type,
+        note,
+      },
+    },
+    "save_support_note",
   );
 
   return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);

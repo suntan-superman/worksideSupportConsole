@@ -304,6 +304,7 @@ body {
 .settings-form select,
 .search-wrap input,
 .reply-form textarea,
+.assigned-work-panel textarea,
 .intake-form input,
 .intake-form textarea,
 .intake-form select {
@@ -326,6 +327,7 @@ body {
 .settings-form select:focus,
 .search-wrap input:focus,
 .reply-form textarea:focus,
+.assigned-work-panel textarea:focus,
 .intake-form input:focus,
 .intake-form textarea:focus,
 .intake-form select:focus {
@@ -758,6 +760,16 @@ body {
   background: var(--accent-hover);
 }
 
+.button-secondary {
+  color: #0b5a83;
+  background: #eaf6ff;
+  border-color: #b9daf3;
+}
+
+.button-secondary:hover {
+  background: #daf0ff;
+}
+
 .button-quiet {
   color: #21486d;
   background: #f2f6fb;
@@ -1043,6 +1055,99 @@ body {
 .live-transfer-action-row {
   display: flex;
   justify-content: flex-end;
+}
+
+.assigned-work-panel {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 16px;
+  display: grid;
+  gap: 10px;
+  background: #fffdf7;
+}
+
+.assigned-work-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assigned-work-panel header div {
+  display: grid;
+  gap: 3px;
+}
+
+.assigned-work-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.assigned-work-panel span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.assigned-work-panel strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.assigned-work-panel label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.assigned-work-panel textarea {
+  resize: vertical;
+}
+
+.assigned-work-panel p {
+  margin: 0;
+  color: #6c5a2d;
+  font-size: 0.78rem;
+}
+
+.support-note-history {
+  display: grid;
+  gap: 8px;
+}
+
+.support-note-history article {
+  border: 1px solid #ecd9a6;
+  border-radius: 8px;
+  background: #fffaf0;
+  padding: 9px 10px;
+  display: grid;
+  gap: 5px;
+}
+
+.support-note-history article div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.support-note-history article strong {
+  font-size: 0.78rem;
+}
+
+.support-note-history article span {
+  text-transform: none;
+  font-size: 0.72rem;
+}
+
+.support-note-history article p {
+  color: var(--text);
+  white-space: pre-wrap;
 }
 
 .transfer-request-form {
