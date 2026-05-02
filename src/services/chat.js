@@ -58,6 +58,30 @@ function normalizeStatus(value) {
   return raw || "unknown";
 }
 
+function isTruthyFlag(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  const raw = String(value ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "y", "on", "requested", "queued", "notified", "pending"].includes(raw);
+}
+
+function isTransferStatus(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return [
+    "requested",
+    "queued",
+    "notified",
+    "pending",
+    "pending_human",
+    "transfer_requested",
+    "awaiting_human",
+    "needs_human",
+    "human_requested",
+    "agent_notified",
+    "team_notified",
+  ].includes(raw);
+}
+
 function pickFirst(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== "") {
@@ -227,9 +251,8 @@ function normalizeSupportNotes(value) {
 function normalizeSession(rawSession) {
   const session = rawSession ?? {};
   const id = pickFirst(session.id, session._id, session.sessionId);
-  const status = normalizeStatus(
-    pickFirst(session.status, session.sessionStatus, session.state, "active_ai"),
-  );
+  const rawStatus = pickFirst(session.status, session.sessionStatus, session.state, "active_ai");
+  const normalizedStatus = normalizeStatus(rawStatus);
 
   const leadComposedName = [session.lead?.firstName, session.lead?.lastName]
     .map((part) => String(part ?? "").trim())
@@ -345,8 +368,71 @@ function normalizeSession(rawSession) {
     session.reason,
     session.transfer?.reason,
     session.escalation?.reason,
+    session.handoff?.reason,
+    session.support?.transferReason,
+    session.support?.handoffReason,
     session.transferReason,
   );
+  const transferRequested = isTruthyFlag(
+    pickFirst(
+      session.transferRequested,
+      session.transfer_requested,
+      session.needsHuman,
+      session.needs_human,
+      session.humanRequested,
+      session.human_requested,
+      session.requestedHuman,
+      session.request_human,
+      session.agentRequested,
+      session.agent_requested,
+      session.supportRequested,
+      session.support_requested,
+      session.handoffRequested,
+      session.handoff_requested,
+      session.humanHandoffRequested,
+      session.human_handoff_requested,
+      session.escalated,
+      session.transfer?.requested,
+      session.transfer?.transferRequested,
+      session.transfer?.humanRequested,
+      session.transfer?.teamNotified,
+      session.transfer?.agentNotified,
+      session.escalation?.requested,
+      session.escalation?.teamNotified,
+      session.handoff?.requested,
+      session.handoff?.teamNotified,
+      session.support?.transferRequested,
+      session.support?.needsHuman,
+      session.support?.humanRequested,
+      session.support?.handoffRequested,
+      session.support?.teamNotified,
+      session.support?.agentNotified,
+      session.support?.notification?.teamNotified,
+      session.support?.notification?.agentNotified,
+      session.notification?.teamNotified,
+      session.notification?.agentNotified,
+    ),
+  );
+  const transferStatusRequested =
+    isTransferStatus(rawStatus) ||
+    isTransferStatus(session.transfer?.status) ||
+    isTransferStatus(session.escalation?.status) ||
+    isTransferStatus(session.handoff?.status) ||
+    isTransferStatus(session.support?.transferStatus) ||
+    isTransferStatus(session.support?.handoffStatus) ||
+    isTransferStatus(session.support?.notification?.status) ||
+    isTransferStatus(session.notification?.status);
+  const transferFlagRequested =
+    transferRequested ||
+    isTruthyFlag(session.teamNotified) ||
+    isTruthyFlag(session.team_notified) ||
+    isTruthyFlag(session.agentNotified) ||
+    isTruthyFlag(session.agent_notified) ||
+    transferStatusRequested;
+  const status =
+    transferFlagRequested && normalizedStatus !== "active_human" && normalizedStatus !== "closed"
+      ? "escalated"
+      : normalizedStatus;
   const messageCount = Number(
     pickFirst(session.messageCount, Array.isArray(session.messages) ? session.messages.length : 0),
   );
@@ -546,9 +632,7 @@ function normalizeSession(rawSession) {
     inquiryUrgency: String(inquiryUrgency),
     inquiryIntent: String(inquiryIntent),
     escalationReason: escalationReason ? String(escalationReason) : "",
-    transferRequested: Boolean(
-      pickFirst(session.transferRequested, session.needsHuman, session.escalated, session.transfer?.requested),
-    ),
+    transferRequested: transferFlagRequested,
     allowAnonymousNoFollowUpClose:
       typeof allowAnonymousNoFollowUpClose === "boolean" ? allowAnonymousNoFollowUpClose : null,
     lastMessagePreview: String(lastMessagePreview ?? ""),
