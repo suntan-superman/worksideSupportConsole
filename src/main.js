@@ -7,6 +7,7 @@ import {
   deleteSupportDepartment,
   escalateSupportSession,
   getChatEndpointTrace,
+  getMyAvailability,
   getSupportSession,
   isHumanSession,
   isSessionEscalated,
@@ -18,14 +19,17 @@ import {
   saveInquiryForSession,
   saveLeadForSession,
   saveSupportNote,
+  sendAvailabilityHeartbeat,
   sendSupportUserInvite,
   sendSupportUserPasswordReset,
   sendSupportUserRoleNotice,
   sendTranscriptForSession,
   sendAgentReply,
   takeOverSession,
+  muteAdminNotifications,
   updateSupportDepartment,
   updateSupportUser,
+  updateMyAvailability,
 } from "./services/chat";
 import { isAuthErrorCode, parseChatApiError, shouldRefreshSession } from "./services/chatErrors";
 import {
@@ -67,7 +71,15 @@ const SORT_DIRECTION_OPTIONS = [
   { value: "desc", label: "Newest first" },
   { value: "asc", label: "Oldest first" },
 ];
+const AVAILABILITY_OPTIONS = [
+  { value: "available", label: "Available" },
+  { value: "busy", label: "Busy" },
+  { value: "away", label: "Away" },
+  { value: "offline", label: "Offline" },
+  { value: "do_not_disturb", label: "Do not disturb" },
+];
 const ACTIVE_CONVERSATION_IDLE_MS = 60_000;
+const AVAILABILITY_HEARTBEAT_MS = 45_000;
 const SUPPORT_CONSOLE_ROLES = new Set([
   "super_admin",
   "admin",
@@ -257,6 +269,15 @@ const state = {
   productOptions: [],
   tenantOptions: [],
   supportUsers: [],
+  availability: {
+    status: "offline",
+    manualOverride: false,
+    quietUntil: "",
+    lastSeenAt: "",
+    updatedAt: "",
+  },
+  availabilityBusy: false,
+  adminNotificationsMuted: false,
   agentName: localStorage.getItem(AGENT_STORAGE_KEY) ?? "",
   selectedSessionId: localStorage.getItem(SELECTED_SESSION_KEY) ?? "",
   sessions: [],
@@ -379,6 +400,7 @@ const state = {
 let bannerTimer = null;
 let pollingInterval = null;
 let pollingInFlight = false;
+let availabilityHeartbeatInterval = null;
 let confirmDialogResolver = null;
 let notificationAudioContext = null;
 
@@ -486,6 +508,10 @@ function stopRealtimeAndPolling() {
     clearInterval(pollingInterval);
     pollingInterval = null;
   }
+  if (availabilityHeartbeatInterval) {
+    clearInterval(availabilityHeartbeatInterval);
+    availabilityHeartbeatInterval = null;
+  }
   state.realtimeStatus = "offline";
 }
 
@@ -512,6 +538,18 @@ async function runPollingCycle() {
   }
 }
 
+async function runAvailabilityHeartbeat() {
+  if (!state.isAuthenticated || state.availability.status !== "available") return;
+  try {
+    const result = await sendAvailabilityHeartbeat();
+    if (result.lastSeenAt) {
+      state.availability.lastSeenAt = result.lastSeenAt;
+    }
+  } catch {
+    // Heartbeat is best-effort; the next polling cycle or manual status change can recover.
+  }
+}
+
 function startRealtimeAndPolling() {
   stopRealtimeAndPolling();
   state.realtimeStatus = "live";
@@ -519,6 +557,10 @@ function startRealtimeAndPolling() {
   pollingInterval = setInterval(() => {
     runPollingCycle();
   }, POLLING_INTERVAL_MS);
+  availabilityHeartbeatInterval = setInterval(() => {
+    runAvailabilityHeartbeat();
+  }, AVAILABILITY_HEARTBEAT_MS);
+  runAvailabilityHeartbeat();
 }
 
 function escapeHtml(value) {
@@ -598,6 +640,15 @@ function roleBadgeLabel() {
   if (state.userRole) return state.userRole;
   if (state.isAuthenticated) return "role:loading";
   return "role:unknown";
+}
+
+function availabilityLabel(status = state.availability.status) {
+  const option = AVAILABILITY_OPTIONS.find((item) => item.value === status);
+  return option?.label ?? "Offline";
+}
+
+function availabilityClass(status = state.availability.status) {
+  return `availability-${String(status || "offline").replace(/_/g, "-")}`;
 }
 
 function buildScopeKey({ tenantId, product } = {}) {
@@ -755,6 +806,10 @@ const TRACE_LABELS = {
   list_support_departments: "List Departments",
   list_admin_support_users: "Admin Users",
   list_admin_support_departments: "Admin Departments",
+  get_my_availability: "Get Availability",
+  update_my_availability: "Update Availability",
+  availability_heartbeat: "Availability Heartbeat",
+  mute_admin_notifications: "Mute Admin Notifications",
   create_admin_support_user: "Create Support User",
   update_admin_support_user: "Update Support User",
   send_admin_support_user_invite: "Send User Invite",
@@ -1303,6 +1358,7 @@ async function completeAuthenticatedStartup() {
   }
   await loadFilterOptions({ silent: true });
   await loadSupportUserOptions({ silent: true });
+  await loadMyAvailability({ silent: true });
   render();
 
   await loadSessions();
@@ -2053,6 +2109,9 @@ function sessionListFingerprint(sessions) {
         session.lastVisitorMessageAt,
         session.unreadForAssignee,
         session.departmentId,
+        session.intent,
+        session.routingStatus,
+        session.availabilityOutcome,
         session.lastMessagePreview,
       ]
         .map((value) => String(value ?? ""))
@@ -2466,6 +2525,17 @@ async function loadFilterOptions({ silent = false } = {}) {
   }
 
   persistFilters();
+}
+
+async function loadMyAvailability({ silent = false } = {}) {
+  if (!state.isAuthenticated || isViewerRole()) return;
+  try {
+    state.availability = await getMyAvailability();
+  } catch (error) {
+    if (!silent) {
+      await handleChatApiError("Load availability", error);
+    }
+  }
 }
 
 async function loadSupportUserOptions({ silent = false } = {}) {
@@ -3130,6 +3200,52 @@ async function loadAssignmentOptions(session) {
   }
 }
 
+async function handleAvailabilityChange(status) {
+  if (!status || state.availabilityBusy) return;
+  state.availabilityBusy = true;
+  state.availability.status = status;
+  render();
+  try {
+    const availability = await updateMyAvailability({
+      status,
+      manualOverride: true,
+      quietUntil: status === "do_not_disturb" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
+    });
+    state.availability = availability;
+    setBanner("success", `Availability set to ${availabilityLabel(availability.status)}.`);
+    if (availability.status === "available") {
+      await runAvailabilityHeartbeat();
+    }
+  } catch (error) {
+    await handleChatApiError("Update availability", error);
+    await loadMyAvailability({ silent: true });
+  } finally {
+    state.availabilityBusy = false;
+    render();
+  }
+}
+
+async function handleMuteAdminNotifications(channel = "all", minutes = 60) {
+  if (!isSuperAdminRole() || state.busyAction) return;
+  state.busyAction = true;
+  render();
+  try {
+    const mutedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+    await muteAdminNotifications({
+      channel,
+      mutedUntil,
+      reason: "Muted from support console",
+    });
+    state.adminNotificationsMuted = true;
+    setBanner("success", `Admin notifications muted for ${minutes} minutes.`);
+  } catch (error) {
+    await handleChatApiError("Mute admin notifications", error);
+  } finally {
+    state.busyAction = false;
+    render();
+  }
+}
+
 async function handleSaveSupportNote() {
   if (isViewerRole()) {
     setBanner("warning", "Viewer role is read-only.");
@@ -3750,6 +3866,16 @@ function renderSessionOperationsSummary(session) {
   const transcriptMeta = session.lastTranscriptSentTo
     ? `To ${session.lastTranscriptSentTo}`
     : "No transcript email recorded";
+  const routingLabel = session.routingStatus
+    ? session.routingStatus.replace(/_/g, " ")
+    : isSessionEscalated(session)
+      ? "waiting acceptance"
+      : "unassigned";
+  const routingMeta = session.availabilityOutcome
+    ? session.availabilityOutcome.replace(/_/g, " ")
+    : session.intent
+      ? `Intent: ${session.intent}`
+      : "No routing outcome";
 
   return `
     <section class="operations-summary" aria-label="Assignment and transcript status">
@@ -3762,6 +3888,11 @@ function renderSessionOperationsSummary(session) {
         <span>Department</span>
         <strong>${escapeHtml(latestAssignment?.departmentLabel || session.departmentLabel || "Unassigned")}</strong>
         <p>${escapeHtml(latestAssignment?.note || "No assignment note")}</p>
+      </article>
+      <article>
+        <span>Routing</span>
+        <strong>${escapeHtml(routingLabel)}</strong>
+        <p>${escapeHtml(routingMeta)}</p>
       </article>
       <article>
         <span>Transcript</span>
@@ -4172,6 +4303,8 @@ function renderDetailPanel() {
         <div><dt>Inquiry</dt><dd>${session.inquiryCaptured ? "Captured" : "Not captured"}</dd></div>
         <div><dt>Owner</dt><dd>${escapeHtml(session.assignedToName || session.assignedToEmail || session.assignedToUserId || state.agentName || "Unassigned")}</dd></div>
         <div><dt>Department</dt><dd>${escapeHtml(session.departmentLabel || "Unassigned")}</dd></div>
+        <div><dt>Intent</dt><dd>${escapeHtml(session.intent || session.inquiryIntent || "general")}</dd></div>
+        <div><dt>Routing</dt><dd>${escapeHtml(session.routingStatus ? session.routingStatus.replace(/_/g, " ") : "unassigned")}</dd></div>
       </dl>
 
       ${renderLiveTransferPanel({
@@ -4544,7 +4677,7 @@ function renderAdminPanel() {
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Departments</th><th>Products</th><th>Status</th><th></th></tr>
+            <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Departments</th><th>Products</th><th>Availability</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             ${
@@ -4558,6 +4691,7 @@ function renderAdminPanel() {
                         <td>${escapeHtml(user.role)}</td>
                         <td>${escapeHtml(user.departments.join(", ") || "-")}</td>
                         <td>${escapeHtml(user.allowedProducts.join(", ") || "-")}</td>
+                        <td>${escapeHtml(availabilityLabel(user.availability?.status))}</td>
                         <td>${user.active ? "Active" : "Inactive"}</td>
                         <td class="admin-row-actions">
                           <button class="button button-compact" type="button" data-admin-user-edit="${escapeHtml(user.id)}">Edit</button>
@@ -4568,7 +4702,7 @@ function renderAdminPanel() {
                       </tr>`,
                     )
                     .join("")
-                : `<tr><td colspan="8">No support users loaded.</td></tr>`
+                : `<tr><td colspan="9">No support users loaded.</td></tr>`
             }
           </tbody>
         </table>
@@ -4945,8 +5079,21 @@ function render() {
           <span>${realtimeStatusLabel(state.realtimeStatus)}</span>
           <span class="queue-pill">Queue ${transferQueueCount}</span>
           <span class="queue-pill">${escapeHtml(roleBadgeLabel())}</span>
+          <span class="queue-pill availability-pill ${escapeHtml(availabilityClass())}">${escapeHtml(
+            availabilityLabel(),
+          )}</span>
         </div>
         <form id="settings-form" class="settings-form">
+          <label>
+            Availability
+            <select id="availability-input" ${state.availabilityBusy || isViewerRole() ? "disabled" : ""}>
+              ${AVAILABILITY_OPTIONS.map(
+                (option) => `<option value="${escapeHtml(option.value)}" ${
+                  state.availability.status === option.value ? "selected" : ""
+                }>${escapeHtml(option.label)}</option>`,
+              ).join("")}
+            </select>
+          </label>
           <label>
             Product
             <select id="support-filter-product">
@@ -5008,6 +5155,13 @@ function render() {
           <button id="diagnostics-toggle-button" class="button" type="button">
             ${state.showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics"}
           </button>
+          ${
+            isSuperAdminRole()
+              ? `<button id="admin-mute-button" class="button button-quiet" type="button">${
+                  state.adminNotificationsMuted ? "Admin Muted" : "Mute Admin Alerts"
+                }</button>`
+              : ""
+          }
           ${
             isSuperAdminRole()
               ? `<button id="admin-toggle-button" class="button" type="button">${
@@ -5274,6 +5428,20 @@ function bindEvents() {
   if (settingsForm) {
     settingsForm.addEventListener("submit", (event) => {
       event.preventDefault();
+    });
+  }
+
+  const availabilityInput = document.querySelector("#availability-input");
+  if (availabilityInput) {
+    availabilityInput.addEventListener("change", async (event) => {
+      await handleAvailabilityChange(String(event.target.value ?? ""));
+    });
+  }
+
+  const adminMuteButton = document.querySelector("#admin-mute-button");
+  if (adminMuteButton) {
+    adminMuteButton.addEventListener("click", async () => {
+      await handleMuteAdminNotifications("all", 60);
     });
   }
 

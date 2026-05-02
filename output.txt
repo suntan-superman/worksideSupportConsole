@@ -1,195 +1,334 @@
-Transcript Goal
+Goal
+When a visitor requests a human, backend should decide whether an available support person exists for the request type, assign or queue the session accordingly, notify the right people, and return clear state to the support console.
 
-Generate a clean, customer-facing email transcript by default. It should include what the customer/prospect said and what the human support person said. It should not include internal notes, assignment events, diagnostics, backend system events, or repetitive AI/system automation unless explicitly requested.
+Departments
+Create/standardize these initial departments:
 
-Endpoint
-
-Use the existing route:
-
-POST /support/sessions/:sessionId/transcript
-Recommended request body:
-
-{
-  "tenantId": "tenant_or_customer_id",
-  "product": "merxus",
-  "to": "customer@example.com",
-  "subject": "Your conversation transcript",
-  "includeCustomerMessages": true,
-  "includeHumanMessages": true,
-  "includeAiMessages": false,
-  "includeSystemMessages": false,
-  "includeInternalNotes": false
-}
-Default Behavior
-
-If the frontend does not send options, backend should use these defaults:
-
-{
-  "includeCustomerMessages": true,
-  "includeHumanMessages": true,
-  "includeAiMessages": false,
-  "includeSystemMessages": false,
-  "includeInternalNotes": false
-}
-Message Inclusion Rules
-
-Include these by default:
-
-visitor
-customer
-contact
-user
-prospect
-human
-agent
+sales
 support
-support_agent
-Exclude these by default:
-
-ai
-assistant
-bot
-system
-internal
-diagnostic
-assignment
-status_event
-note
-Do include the customer’s handoff request, for example:
-
-Customer: I would like to talk to a person.
-Do not include internal transfer events like:
-
-System: Team notified
-System: Transfer requested
-System: Human accepted
-Recommended Email Format
-
-Subject:
-
-Your conversation transcript
-HTML body:
-
-<h1>Your conversation transcript</h1>
-
-<p>
-  <strong>Date:</strong> May 2, 2026<br>
-  <strong>Customer:</strong> Jerry Seinfeld<br>
-  <strong>Email:</strong> junk@anyryde.com
-</p>
-
-<h2>Conversation</h2>
-
-<div>
-  <p><strong>Customer</strong><br>I would like to talk to a person.</p>
-  <p><strong>Support</strong><br>How can I help you today?</p>
-</div>
-Plain-text fallback:
-
-Your conversation transcript
-
-Date: May 2, 2026
-Customer: Jerry Seinfeld
-Email: junk@anyryde.com
-
-Conversation
-
-Customer:
-I would like to talk to a person.
-
-Support:
-How can I help you today?
-Required Metadata
-
-Use available lead/contact fields:
+billing
+general
+Department model:
 
 {
-  "leadName": "Jerry Seinfeld",
-  "leadEmail": "junk@anyryde.com",
-  "leadPhone": "(661) 555-1111",
-  "company": "Optional",
-  "sessionId": "CA...",
+  "id": "support",
+  "label": "Support",
   "product": "merxus",
-  "tenantName": "Jerry Seinfeld"
+  "active": true,
+  "defaultAssigneeIds": [],
+  "fallbackDepartmentId": "general",
+  "createdAt": "...",
+  "updatedAt": "..."
 }
-If leadName is missing, fall back to:
+Prevent duplicate department IDs per product.
 
-tenantName
-organizationName
-contactName
-"Customer"
-If email is missing, reject customer-facing transcript send with:
+Support User Model
+Extend support users with availability and notifications:
+
+{
+  "id": "firebase_uid_or_internal_id",
+  "name": "Mike",
+  "email": "mike@example.com",
+  "phone": "+16613451154",
+  "role": "support_agent",
+  "active": true,
+  "departments": ["support", "general"],
+  "allowedProducts": ["merxus"],
+  "allowedTenantIds": ["*"],
+  "availability": {
+    "status": "available",
+    "manualOverride": false,
+    "quietUntil": null,
+    "lastSeenAt": "2026-05-02T17:00:00.000Z",
+    "updatedAt": "2026-05-02T17:00:00.000Z"
+  },
+  "notificationPreferences": {
+    "sms": true,
+    "email": true,
+    "consoleSound": true,
+    "adminEscalations": true
+  }
+}
+Availability statuses:
+
+available
+busy
+away
+offline
+do_not_disturb
+A user is available only if:
+
+active === true
+matching department
+matching product
+matching tenant access
+availability.status === "available"
+quietUntil is null or expired
+either manualOverride === true or lastSeenAt is recent enough
+Recommended recent threshold:
+
+lastSeenAt within 2 minutes
+Availability Endpoints
+
+GET /support/users/me/availability
+POST /support/users/me/availability
+Request:
+
+{
+  "status": "available",
+  "manualOverride": true,
+  "quietUntil": null
+}
+Response:
+
+{
+  "availability": {
+    "status": "available",
+    "manualOverride": true,
+    "quietUntil": null,
+    "lastSeenAt": "2026-05-02T17:00:00.000Z",
+    "updatedAt": "2026-05-02T17:00:00.000Z"
+  }
+}
+Also add heartbeat:
+
+POST /support/users/me/heartbeat
+Response:
+
+{
+  "ok": true,
+  "lastSeenAt": "2026-05-02T17:00:00.000Z"
+}
+The frontend can call heartbeat every 30-60 seconds while logged in.
+
+Admin Availability Endpoints
+
+For super_admin/support_admin:
+
+GET /support/admin/users
+PATCH /support/admin/users/:userId
+Allow admin to update:
+
+{
+  "departments": ["support"],
+  "phone": "+16613451154",
+  "notificationPreferences": {
+    "sms": true,
+    "email": true,
+    "consoleSound": true,
+    "adminEscalations": true
+  },
+  "availability": {
+    "status": "available",
+    "manualOverride": true,
+    "quietUntil": null
+  }
+}
+Intent Classification
+When visitor requests a person, classify intent into:
+
+sales
+support
+billing
+general
+Use available structured hints first:
+
+{
+  "intent": "support"
+}
+Fallback keyword examples:
+
+sales: pricing, demo, buy, plan, quote
+billing: invoice, charge, payment, refund
+support: help, broken, issue, problem, error
+general: unknown/default
+Persist:
+
+{
+  "intent": "support",
+  "departmentId": "support"
+}
+Human Request / Transfer Route
+When the visitor asks for a human, backend should:
+
+Persist visitor message.
+Capture lead/contact fields if supplied.
+Classify intent.
+Find matching department.
+Find available support users.
+Assign if available, otherwise queue.
+Notify support/admin as appropriate.
+Return updated session.
+Canonical session update if available agent found:
+
+{
+  "status": "escalated",
+  "transferRequested": true,
+  "transferRequestedAt": "2026-05-02T17:00:00.000Z",
+  "transferReason": "user_requested_human",
+  "intent": "support",
+  "departmentId": "support",
+  "departmentLabel": "Support",
+  "routingStatus": "assigned",
+  "availabilityOutcome": "available_agent_found",
+  "assignedToUserId": "user_id",
+  "assignedToName": "Mike",
+  "assignedToEmail": "mike@example.com"
+}
+If nobody is available:
+
+{
+  "status": "escalated",
+  "transferRequested": true,
+  "transferRequestedAt": "2026-05-02T17:00:00.000Z",
+  "transferReason": "user_requested_human",
+  "intent": "support",
+  "departmentId": "support",
+  "departmentLabel": "Support",
+  "routingStatus": "queued_no_agent_available",
+  "availabilityOutcome": "no_available_agent",
+  "assignedToUserId": "",
+  "assignedToName": "",
+  "assignedToEmail": ""
+}
+Customer Chat Response
+If agent is available:
+
+I'm connecting you with someone now.
+If no one is available:
+
+No one is available right now, but someone will follow up shortly.
+If contact info is missing:
+
+Please leave your name and email so someone can follow up.
+Notifications
+When available agent found:
+
+Notify assigned support user by SMS if enabled.
+Notify console clients via realtime/poll state.
+Optional email if enabled.
+SMS example:
+
+New Merxus support request from Jerry Seinfeld. Intent: Support. Open the support console to accept the transfer.
+When no agent available:
+
+Notify admins/supervisors unless muted.
+Optional SMS/email based on preferences.
+Admin SMS example:
+
+Merxus support request is waiting with no available support agent. Intent: Support. Customer: Jerry Seinfeld.
+Admin Mute / Silence
+Add admin notification mute:
+
+POST /support/admin/notification-mute
+Request:
+
+{
+  "channel": "sms",
+  "mutedUntil": "2026-05-02T19:00:00.000Z",
+  "reason": "In meeting"
+}
+Channels:
+
+sms
+email
+console_sound
+all
+Backend must respect mute settings for admin escalation notifications.
+
+Session List / Detail Payload
+Both routes must return routing fields:
+
+GET /support/sessions
+GET /support/sessions/:sessionId
+Include:
+
+{
+  "intent": "support",
+  "departmentId": "support",
+  "departmentLabel": "Support",
+  "routingStatus": "assigned",
+  "availabilityOutcome": "available_agent_found",
+  "assignedToUserId": "user_id",
+  "assignedToName": "Mike",
+  "assignedToEmail": "mike@example.com",
+  "transferRequested": true,
+  "status": "escalated"
+}
+Routing Status Values
+
+unassigned
+assigned
+queued_no_agent_available
+queued_waiting_acceptance
+accepted
+closed
+routing_failed
+Availability Outcome Values
+
+available_agent_found
+no_available_agent
+no_matching_department
+no_matching_support_user
+routing_error
+Error Contract
+Use structured errors:
 
 {
   "error": {
-    "code": "CONTACT_EMAIL_REQUIRED",
-    "message": "A contact email is required before sending a transcript.",
-    "requiredAction": "collect_email"
+    "code": "NO_AVAILABLE_AGENT",
+    "message": "No support agent is currently available.",
+    "requiredAction": "queue_followup"
   }
 }
-Full/Internal Transcript Option
+Suggested codes:
 
-Support an admin/internal export mode:
+INVALID_AVAILABILITY_STATUS
+SUPPORT_USER_NOT_FOUND
+SUPPORT_USER_INACTIVE
+DEPARTMENT_NOT_FOUND
+NO_MATCHING_SUPPORT_USER
+NO_AVAILABLE_AGENT
+ROUTING_FAILED
+NOTIFICATION_FAILED
+Important: notification failure should not roll back the session routing state. Persist routing first, then record notification failure separately.
 
-{
-  "includeCustomerMessages": true,
-  "includeHumanMessages": true,
-  "includeAiMessages": true,
-  "includeSystemMessages": true,
-  "includeInternalNotes": true
-}
-This should be used only for internal/admin recipients, not for customer-facing transcript emails.
+Audit Events
+Persist audit events for:
 
-Security Rules
-
-Require Firebase auth.
-Require active support-console user.
-Enforce product and tenant/customer access.
-Never allow a user to send transcripts for sessions outside their scope.
-Do not include internal notes in customer-facing transcripts.
-Do not include sensitive diagnostics, auth claims, API errors, or backend traces.
-Sanitize HTML content before sending.
-Always generate a plain-text fallback body.
-Audit Logging
-
-On successful send, persist:
+human_requested
+intent_classified
+routing_attempted
+agent_assigned
+no_agent_available
+support_user_notified
+admin_notified
+notification_failed
+availability_changed
+heartbeat_received
+transfer_accepted
+Example:
 
 {
   "sessionId": "CA...",
-  "to": "customer@example.com",
-  "subject": "Your conversation transcript",
-  "sentAt": "2026-05-02T...",
-  "sentByUserId": "support_user_id",
-  "sentByName": "Mark",
-  "sentByEmail": "mark@example.com",
-  "includeCustomerMessages": true,
-  "includeHumanMessages": true,
-  "includeAiMessages": false,
-  "includeSystemMessages": false,
-  "includeInternalNotes": false,
-  "provider": "sendgrid",
-  "messageId": "sendgrid_message_id"
-}
-Then return that receipt from both:
-
-POST /support/sessions/:sessionId/transcript
-GET /support/sessions/:sessionId
-as:
-
-{
-  "lastTranscript": {
-    "sentAt": "2026-05-02T...",
-    "to": "customer@example.com",
-    "provider": "sendgrid",
-    "messageId": "..."
+  "event": "agent_assigned",
+  "createdAt": "...",
+  "actorType": "system",
+  "data": {
+    "departmentId": "support",
+    "assignedToUserId": "user_id",
+    "availabilityOutcome": "available_agent_found"
   }
 }
 Acceptance Criteria
 
-Default customer transcript includes only customer/prospect and human support conversation.
-AI/system/internal messages are excluded by default.
-Customer’s “talk to a person” message is included.
-Transcript has customer name/email metadata.
-Missing email returns CONTACT_EMAIL_REQUIRED.
-Internal notes are never sent to customer unless explicitly using internal/admin mode.
-Send receipt appears in session detail after sending.
+Visitor requests human.
+Backend persists status: "escalated" and transferRequested: true.
+Backend classifies intent into sales/support/billing/general.
+If available matching user exists, session is assigned to that user.
+Assigned user receives SMS if enabled.
+If no user is available, session remains queued and customer is told someone will follow up.
+Admin receives notification unless muted.
+GET /support/sessions shows routing status and availability outcome.
+Console queue count increases for human-requested sessions.
+Notification failure does not lose the transfer request.

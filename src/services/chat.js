@@ -543,6 +543,25 @@ function normalizeSession(rawSession) {
     session.assignment?.departmentLabel,
     departmentId,
   );
+  const intent = pickFirst(
+    session.intent,
+    session.inquiryIntent,
+    session.inquiry?.intent,
+    session.support?.intent,
+    session.routing?.intent,
+  );
+  const routingStatus = pickFirst(
+    session.routingStatus,
+    session.routing_status,
+    session.support?.routingStatus,
+    session.routing?.status,
+  );
+  const availabilityOutcome = pickFirst(
+    session.availabilityOutcome,
+    session.availability_outcome,
+    session.support?.availabilityOutcome,
+    session.routing?.availabilityOutcome,
+  );
   const assignmentHistory = normalizeAssignmentHistory(
     pickFirst(session.assignmentHistory, session.support?.assignmentHistory, session.assignment?.history, []),
   );
@@ -590,6 +609,9 @@ function normalizeSession(rawSession) {
     unreadForAssignee: Number.isFinite(unreadForAssignee) ? unreadForAssignee : 0,
     departmentId: departmentId ? String(departmentId) : "",
     departmentLabel: departmentLabel ? String(departmentLabel) : "",
+    intent: intent ? String(intent) : "",
+    routingStatus: routingStatus ? String(routingStatus) : "",
+    availabilityOutcome: availabilityOutcome ? String(availabilityOutcome) : "",
     assignmentHistory,
     latestAssignment: latestAssignment ?? null,
     lastTranscriptSentAt: transcriptReceipt?.sentAt ?? "",
@@ -701,6 +723,11 @@ function normalizeSupportUser(entry) {
   const item = entry ?? {};
   const id = pickFirst(item.id, item.uid, item.userId, item.email);
   if (!id) return null;
+  const availability = item.availability && typeof item.availability === "object" ? item.availability : {};
+  const notificationPreferences =
+    item.notificationPreferences && typeof item.notificationPreferences === "object"
+      ? item.notificationPreferences
+      : {};
   return {
     id: String(id),
     name: String(pickFirst(item.name, item.displayName, item.email, id)),
@@ -710,6 +737,19 @@ function normalizeSupportUser(entry) {
     departments: Array.isArray(item.departments) ? item.departments.map(String) : [],
     allowedProducts: Array.isArray(item.allowedProducts) ? item.allowedProducts.map(String) : [],
     allowedTenantIds: Array.isArray(item.allowedTenantIds) ? item.allowedTenantIds.map(String) : [],
+    availability: {
+      status: String(pickFirst(availability.status, item.availabilityStatus, "offline")),
+      manualOverride: Boolean(pickFirst(availability.manualOverride, false)),
+      quietUntil: String(pickFirst(availability.quietUntil, "")),
+      lastSeenAt: String(pickFirst(availability.lastSeenAt, "")),
+      updatedAt: String(pickFirst(availability.updatedAt, "")),
+    },
+    notificationPreferences: {
+      sms: notificationPreferences.sms !== false,
+      email: notificationPreferences.email !== false,
+      consoleSound: notificationPreferences.consoleSound !== false,
+      adminEscalations: notificationPreferences.adminEscalations !== false,
+    },
     active: item.active !== false,
   };
 }
@@ -990,6 +1030,61 @@ export async function listSupportDepartments({ product, tenantId, admin = false 
   );
 
   return normalizeSupportDepartments(payload);
+}
+
+function normalizeAvailability(payload) {
+  const item = pickFirst(payload?.availability, payload?.data?.availability, payload?.data, payload, {});
+  return {
+    status: String(pickFirst(item.status, "offline")),
+    manualOverride: Boolean(pickFirst(item.manualOverride, false)),
+    quietUntil: String(pickFirst(item.quietUntil, "")),
+    lastSeenAt: String(pickFirst(item.lastSeenAt, "")),
+    updatedAt: String(pickFirst(item.updatedAt, "")),
+  };
+}
+
+export async function getMyAvailability() {
+  const payload = await requestSupport(
+    "/support/users/me/availability",
+    { method: "GET" },
+    "get_my_availability",
+  );
+  return normalizeAvailability(payload);
+}
+
+export async function updateMyAvailability({ status, manualOverride = true, quietUntil = null } = {}) {
+  const payload = await requestSupport(
+    "/support/users/me/availability",
+    {
+      method: "POST",
+      body: { status, manualOverride, quietUntil },
+    },
+    "update_my_availability",
+  );
+  return normalizeAvailability(payload);
+}
+
+export async function sendAvailabilityHeartbeat() {
+  const payload = await requestSupport(
+    "/support/users/me/heartbeat",
+    { method: "POST" },
+    "availability_heartbeat",
+  );
+  return {
+    ok: payload?.ok !== false,
+    lastSeenAt: String(pickFirst(payload?.lastSeenAt, payload?.data?.lastSeenAt, "")),
+  };
+}
+
+export async function muteAdminNotifications({ channel = "all", mutedUntil, reason = "" } = {}) {
+  return requestSupport(
+    "/support/admin/notification-mute",
+    {
+      method: "POST",
+      body: { channel, mutedUntil, reason },
+    },
+    "mute_admin_notifications",
+  );
 }
 
 export async function createSupportUser(body = {}) {

@@ -286,6 +286,31 @@ body {
   font-size: 0.72rem;
 }
 
+.availability-pill {
+  border: 1px solid transparent;
+}
+
+.availability-available {
+  background: #def7e9;
+  color: #0b6f43;
+}
+
+.availability-busy,
+.availability-do-not-disturb {
+  background: #ffe2e8;
+  color: #8f1632;
+}
+
+.availability-away {
+  background: #fff2dd;
+  color: #8e5a00;
+}
+
+.availability-offline {
+  background: #eef2f7;
+  color: #5d6877;
+}
+
 .settings-form {
   display: flex;
   align-items: end;
@@ -831,7 +856,7 @@ body {
   border-bottom: 1px solid var(--line);
   padding: 10px 16px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 10px;
   background: #fbfdff;
 }
