@@ -3,7 +3,13 @@ import { __testing } from "../src/services/chat.js";
 import { ApiError } from "../src/services/api.js";
 import { parseChatApiError } from "../src/services/chatErrors.js";
 
-const { normalizeAvailability, normalizeSession, normalizeSessionAndMessages, normalizeSessionList } = __testing;
+const {
+  normalizeAvailability,
+  normalizeSession,
+  normalizeSessionAndMessages,
+  normalizeSessionList,
+  normalizeSupportUserNotificationResult,
+} = __testing;
 
 describe("support chat normalization", () => {
   it("maps canonical and legacy session statuses", () => {
@@ -118,6 +124,31 @@ describe("support chat normalization", () => {
       assignable: false,
       blockedReason: "stale_heartbeat",
     });
+  });
+
+  it("normalizes support user invite channel metadata", () => {
+    const result = normalizeSupportUserNotificationResult({
+      ok: true,
+      channels: {
+        email: { attempted: true, sent: true, recipient: "agent@example.com" },
+        sms: { attempted: true, sent: false, reason: "twilio_unavailable" },
+      },
+    });
+
+    expect(result.channels.email).toEqual(
+      expect.objectContaining({
+        attempted: true,
+        sent: true,
+        recipient: "agent@example.com",
+      }),
+    );
+    expect(result.channels.sms).toEqual(
+      expect.objectContaining({
+        attempted: true,
+        sent: false,
+        reason: "twilio_unavailable",
+      }),
+    );
   });
 
   it("normalizes list payloads and structured API errors", () => {

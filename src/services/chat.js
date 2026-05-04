@@ -813,6 +813,46 @@ function normalizeSupportUser(entry) {
   };
 }
 
+function normalizeDeliveryChannel(value = {}) {
+  const item = value && typeof value === "object" ? value : {};
+  const attempted = Boolean(pickFirst(item.attempted, item.smsAttempted, item.emailAttempted, item.sent, false));
+  const sent = Boolean(pickFirst(item.sent, item.smsSent, item.emailSent, item.ok, false));
+  return {
+    attempted,
+    sent,
+    recipient: String(pickFirst(item.recipient, item.to, item.phone, item.email, "")),
+    reason: String(pickFirst(item.reason, item.skippedReason, item.error, item.errorMessage, "")),
+  };
+}
+
+function normalizeSupportUserNotificationResult(payload = {}) {
+  const root = payload && typeof payload === "object" ? payload : {};
+  const source = pickFirst(root.data, root.result, root.invite, root.notification, root);
+  const channels = source?.channels && typeof source.channels === "object" ? source.channels : {};
+  return {
+    ok: pickFirst(source?.ok, root.ok, true) !== false,
+    raw: root,
+    channels: {
+      email: normalizeDeliveryChannel(
+        pickFirst(channels.email, source?.email, {
+          attempted: source?.emailAttempted,
+          sent: source?.emailSent,
+          recipient: source?.emailRecipient,
+          reason: source?.emailReason,
+        }),
+      ),
+      sms: normalizeDeliveryChannel(
+        pickFirst(channels.sms, source?.sms, {
+          attempted: source?.smsAttempted,
+          sent: source?.smsSent,
+          recipient: source?.smsRecipient,
+          reason: source?.smsReason,
+        }),
+      ),
+    },
+  };
+}
+
 function normalizeSupportDepartment(entry) {
   const item = entry ?? {};
   const id = pickFirst(item.id, item.departmentId, item.key, item.slug);
@@ -1178,33 +1218,36 @@ export async function updateSupportUser(userId, body = {}) {
 }
 
 export async function sendSupportUserInvite(userId) {
-  return requestSupport(
+  const payload = await requestSupport(
     `/support/admin/users/${encodeURIComponent(userId)}/invite`,
     {
       method: "POST",
     },
     "send_admin_support_user_invite",
   );
+  return normalizeSupportUserNotificationResult(payload);
 }
 
 export async function sendSupportUserPasswordReset(userId) {
-  return requestSupport(
+  const payload = await requestSupport(
     `/support/admin/users/${encodeURIComponent(userId)}/reset-password`,
     {
       method: "POST",
     },
     "send_admin_support_user_password_reset",
   );
+  return normalizeSupportUserNotificationResult(payload);
 }
 
 export async function sendSupportUserRoleNotice(userId) {
-  return requestSupport(
+  const payload = await requestSupport(
     `/support/admin/users/${encodeURIComponent(userId)}/notify-role-change`,
     {
       method: "POST",
     },
     "send_admin_support_user_role_notice",
   );
+  return normalizeSupportUserNotificationResult(payload);
 }
 
 export async function createSupportDepartment(body = {}) {
@@ -1554,6 +1597,7 @@ export const __testing = {
   normalizeAvailability,
   normalizeNotificationStatus,
   normalizeNotificationTimeline,
+  normalizeSupportUserNotificationResult,
   normalizeSession,
   normalizeSessionAndMessages,
   normalizeSessionList,

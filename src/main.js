@@ -3104,8 +3104,8 @@ async function handleSupportUserAccountAction(userId, action) {
   state.busyAction = true;
   render();
   try {
-    await entry.fn(user.id);
-    setBanner("success", `${entry.label} to ${user.email || user.name}.`);
+    const result = await entry.fn(user.id);
+    setBanner("success", supportUserAccountActionMessage(entry.label, user, result));
     await loadAdminPanelData();
   } catch (error) {
     await handleChatApiError(entry.context, error);
@@ -3113,6 +3113,26 @@ async function handleSupportUserAccountAction(userId, action) {
     state.busyAction = false;
     render();
   }
+}
+
+function deliveryChannelSummary(label, channel) {
+  if (!channel?.attempted) {
+    return channel?.reason ? `${label} skipped: ${channel.reason.replace(/_/g, " ")}` : "";
+  }
+  if (channel.sent) return `${label} sent`;
+  return channel.reason ? `${label} failed: ${channel.reason.replace(/_/g, " ")}` : `${label} not sent`;
+}
+
+function supportUserAccountActionMessage(label, user, result = {}) {
+  const target = user.email || user.name;
+  const channels = result.channels || {};
+  const channelSummary = [
+    deliveryChannelSummary("email", channels.email),
+    deliveryChannelSummary("SMS", channels.sms),
+  ]
+    .filter(Boolean)
+    .join("; ");
+  return channelSummary ? `${label} to ${target}. ${channelSummary}.` : `${label} to ${target}.`;
 }
 
 async function loadSessions({ silent = false } = {}) {
@@ -5410,34 +5430,40 @@ function render() {
             Agent Name
             <input id="agent-input" value="${escapeHtml(state.agentName)}" placeholder="Your name" />
           </label>
-          <label class="checkbox-row auto-logout-toggle">
+          <label class="auto-logout-toggle" title="Warn after 1 hour of inactivity, then logout after 5 more minutes.">
             <input id="auto-logout-input" type="checkbox" ${state.autoLogoutEnabled ? "checked" : ""} />
-            Auto logout after 1 hour
+            <span class="auto-logout-switch" aria-hidden="true"></span>
+            <span class="auto-logout-copy">
+              <strong>Auto logout</strong>
+              <small>1 hour idle</small>
+            </span>
           </label>
-          <button id="diagnostics-toggle-button" class="button" type="button">
-            ${state.showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics"}
-          </button>
-          ${
-            isSuperAdminRole()
-              ? `<div class="admin-mute-control">
-                  <span class="admin-mute-status ${state.adminNotificationsMuted ? "is-muted" : "is-active"}">${escapeHtml(
-                    adminNotificationMuteLabel(),
-                  )}</span>
-                  <button id="admin-mute-button" class="button button-quiet" type="button">${escapeHtml(
-                    adminNotificationMuteButtonLabel(),
-                  )}</button>
-                </div>`
-              : ""
-          }
-          ${
-            isSuperAdminRole()
-              ? `<button id="admin-toggle-button" class="button" type="button">${
-                  state.adminPanelOpen ? "Hide Admin" : "Admin"
-                }</button>`
-              : ""
-          }
-          <button id="logout-button" class="button" type="button">Logout</button>
-          <button id="refresh-button" class="button" type="button">Refresh</button>
+          <div class="settings-actions">
+            <button id="diagnostics-toggle-button" class="button" type="button">
+              ${state.showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics"}
+            </button>
+            ${
+              isSuperAdminRole()
+                ? `<div class="admin-mute-control">
+                    <span class="admin-mute-status ${state.adminNotificationsMuted ? "is-muted" : "is-active"}">${escapeHtml(
+                      adminNotificationMuteLabel(),
+                    )}</span>
+                    <button id="admin-mute-button" class="button button-quiet" type="button">${escapeHtml(
+                      adminNotificationMuteButtonLabel(),
+                    )}</button>
+                  </div>`
+                : ""
+            }
+            ${
+              isSuperAdminRole()
+                ? `<button id="admin-toggle-button" class="button" type="button">${
+                    state.adminPanelOpen ? "Hide Admin" : "Admin"
+                  }</button>`
+                : ""
+            }
+            <button id="logout-button" class="button" type="button">Logout</button>
+            <button id="refresh-button" class="button" type="button">Refresh</button>
+          </div>
           <div class="availability-hint">${escapeHtml(availabilityDetailText() || "Heartbeat runs while you are available.")}</div>
         </form>
       </header>

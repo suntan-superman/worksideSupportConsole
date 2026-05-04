@@ -1,30 +1,15 @@
-PS C:\Users\sjroy\Source\WorksideSupportConsole> npx playwright test --config=playwright.public.config.js --headed
->>
+Changes made:
 
-Running 1 test using 1 worker
-
-  x  1 tests\public-chat.spec.js:3:1 › Visitor can request human from public chat (30.1s)
-
-
-  1) tests\public-chat.spec.js:3:1 › Visitor can request human from public chat ────────────────────
-
-    Test timeout of 30000ms exceeded.
-
-    Error: locator.click: Test timeout of 30000ms exceeded.
-    Call log:
-      - waiting for locator('[data-testid="chat-open-button"]')
-
-
-       6 |   // Open chat widget
-       7 |   const chatButton = page.locator('[data-testid="chat-open-button"]');
-    >  8 |   await chatButton.click();
-         |                    ^
-       9 |
-      10 |   // Send initial message
-      11 |   const chatInput = page.locator('textarea');
-        at C:\Users\sjroy\Source\WorksideSupportConsole\tests\public-chat.spec.js:8:20
-
-    Error Context: test-results\public-chat-Visitor-can-request-human-from-public-chat\error-context.md
-
-  1 failed
-    tests\public-chat.spec.js:3:1 › Visitor can request human from public chat ──────────────────
+Added SMS as a best-effort companion channel for:
+POST /support/admin/users/:userId/invite
+POST /support/admin/users/:userId/notify-role-change
+Kept email behavior as the primary/blocking path.
+Added returned channels metadata for email and sms.
+SMS sends only when:
+user has phone, phoneNumber, or smsPhone
+phone normalizes to E.164
+notificationPreferences.sms !== false
+Twilio config is present
+SMS failure is captured in response/audit and does not fail the overall invite/notify when email succeeds.
+createAdminUserController now returns channels when sendInvite is used.
+Added regression tests for SMS sent, missing phone, and SMS disabled.
