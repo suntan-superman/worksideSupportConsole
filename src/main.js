@@ -53,6 +53,8 @@ const FILTER_OWNER_STORAGE_KEY = "workside_support_filter_owner";
 const USER_ROLE_STORAGE_KEY = "workside_support_role";
 const REMEMBER_AUTH_EMAIL_KEY = "workside_support_remember_auth_email";
 const REMEMBER_AUTH_EMAIL_ENABLED_KEY = "workside_support_remember_auth_email_enabled";
+const ADMIN_NOTIFICATION_MUTE_STORAGE_KEY = "workside_admin_notification_mute";
+const AUTO_LOGOUT_ENABLED_STORAGE_KEY = "workside_auto_logout_enabled";
 const ALL_TENANTS_VALUE = "__all__";
 
 const URGENCY_OPTIONS = ["low", "medium", "high"];
@@ -80,6 +82,9 @@ const AVAILABILITY_OPTIONS = [
 ];
 const ACTIVE_CONVERSATION_IDLE_MS = 60_000;
 const AVAILABILITY_HEARTBEAT_MS = 45_000;
+const AUTO_LOGOUT_IDLE_MS = 60 * 60 * 1000;
+const AUTO_LOGOUT_WARNING_MS = 5 * 60 * 1000;
+const INACTIVITY_CHECK_MS = 1000;
 const SUPPORT_CONSOLE_ROLES = new Set([
   "super_admin",
   "admin",
@@ -264,6 +269,26 @@ const app = document.querySelector("#app");
 
 const storedFilters = readStoredFilters();
 
+function readStoredAdminNotificationMute() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ADMIN_NOTIFICATION_MUTE_STORAGE_KEY) ?? "{}");
+    const mutedUntil = String(parsed.mutedUntil ?? "").trim();
+    if (!mutedUntil || Number.isNaN(Date.parse(mutedUntil)) || Date.parse(mutedUntil) <= Date.now()) {
+      localStorage.removeItem(ADMIN_NOTIFICATION_MUTE_STORAGE_KEY);
+      return { mutedUntil: "", channel: "all" };
+    }
+    return {
+      mutedUntil,
+      channel: String(parsed.channel ?? "all").trim() || "all",
+    };
+  } catch {
+    localStorage.removeItem(ADMIN_NOTIFICATION_MUTE_STORAGE_KEY);
+    return { mutedUntil: "", channel: "all" };
+  }
+}
+
+const storedAdminNotificationMute = readStoredAdminNotificationMute();
+
 const state = {
   supportFilters: storedFilters,
   productOptions: [],
@@ -283,7 +308,16 @@ const state = {
   availabilityBusy: false,
   availabilityHeartbeatError: "",
   lastAvailabilityHeartbeatAt: "",
-  adminNotificationsMuted: false,
+  autoLogoutEnabled: localStorage.getItem(AUTO_LOGOUT_ENABLED_STORAGE_KEY) !== "false",
+  lastActivityAt: Date.now(),
+  inactivityWarning: {
+    open: false,
+    logoutAt: 0,
+    remainingSeconds: 0,
+  },
+  adminNotificationsMuted: Boolean(storedAdminNotificationMute.mutedUntil),
+  adminNotificationsMutedUntil: storedAdminNotificationMute.mutedUntil,
+  adminNotificationsMutedChannel: storedAdminNotificationMute.channel,
   agentName: localStorage.getItem(AGENT_STORAGE_KEY) ?? "",
   selectedSessionId: localStorage.getItem(SELECTED_SESSION_KEY) ?? "",
   sessions: [],
@@ -407,6 +441,7 @@ let bannerTimer = null;
 let pollingInterval = null;
 let pollingInFlight = false;
 let availabilityHeartbeatInterval = null;
+let inactivityCheckInterval = null;
 let confirmDialogResolver = null;
 let notificationAudioContext = null;
 
@@ -463,6 +498,31 @@ function playNewSessionSound() {
   }
 }
 
+function playInactivityWarningSound() {
+  if (!state.sessionSoundReady) return;
+  const audioContext = notificationAudioContext;
+  if (!audioContext) return;
+  try {
+    const startedAt = audioContext.currentTime;
+    const gain = audioContext.createGain();
+    gain.gain.setValueAtTime(0.0001, startedAt);
+    gain.gain.exponentialRampToValueAtTime(0.1, startedAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.9);
+    [660, 520, 660].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const start = startedAt + index * 0.24;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      oscillator.connect(gain);
+      oscillator.start(start);
+      oscillator.stop(start + 0.18);
+    });
+    gain.connect(audioContext.destination);
+  } catch {
+    // Visual auto-logout warning remains authoritative if audio cannot play.
+  }
+}
+
 async function requestConfirmationDialog({
   title,
   lines,
@@ -503,6 +563,7 @@ function isUserEditingDetailForm() {
 function isWorkflowDialogOpen() {
   return Boolean(
     state.confirmDialog?.open ||
+      state.inactivityWarning?.open ||
       state.assignDialog?.open ||
       state.transcriptDialog?.open ||
       state.adminDialog?.open,
@@ -519,6 +580,108 @@ function stopRealtimeAndPolling() {
     availabilityHeartbeatInterval = null;
   }
   state.realtimeStatus = "offline";
+}
+
+function stopInactivityTimer() {
+  if (!inactivityCheckInterval) return;
+  clearInterval(inactivityCheckInterval);
+  inactivityCheckInterval = null;
+}
+
+function resetInactivityWarning() {
+  state.inactivityWarning = {
+    open: false,
+    logoutAt: 0,
+    remainingSeconds: 0,
+  };
+}
+
+function recordUserActivity({ force = false } = {}) {
+  if (!state.isAuthenticated) return;
+  if (state.inactivityWarning?.open && !force) return;
+  state.lastActivityAt = Date.now();
+  if (state.inactivityWarning?.open) {
+    resetInactivityWarning();
+    render();
+  }
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.ceil(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  if (minutes <= 0) return `${remainder} second${remainder === 1 ? "" : "s"}`;
+  if (remainder === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function showInactivityWarning() {
+  const logoutAt = Date.now() + AUTO_LOGOUT_WARNING_MS;
+  state.inactivityWarning = {
+    open: true,
+    logoutAt,
+    remainingSeconds: Math.ceil(AUTO_LOGOUT_WARNING_MS / 1000),
+  };
+  playInactivityWarningSound();
+  render();
+}
+
+async function runInactivityCheck() {
+  if (!state.isAuthenticated || !state.autoLogoutEnabled) return;
+  const now = Date.now();
+  if (state.inactivityWarning?.open) {
+    const remainingSeconds = Math.max(0, Math.ceil((state.inactivityWarning.logoutAt - now) / 1000));
+    if (remainingSeconds !== state.inactivityWarning.remainingSeconds) {
+      state.inactivityWarning.remainingSeconds = remainingSeconds;
+      render();
+    }
+    if (remainingSeconds <= 0) {
+      await handleLogout({ reason: "inactivity" });
+    }
+    return;
+  }
+
+  if (now - state.lastActivityAt >= AUTO_LOGOUT_IDLE_MS) {
+    showInactivityWarning();
+  }
+}
+
+function startInactivityTimer() {
+  stopInactivityTimer();
+  state.lastActivityAt = Date.now();
+  resetInactivityWarning();
+  if (!state.autoLogoutEnabled) return;
+  inactivityCheckInterval = setInterval(() => {
+    runInactivityCheck();
+  }, INACTIVITY_CHECK_MS);
+}
+
+function syncInactivityTimer() {
+  if (!state.isAuthenticated || !state.autoLogoutEnabled) {
+    stopInactivityTimer();
+    resetInactivityWarning();
+    return;
+  }
+  if (inactivityCheckInterval) return;
+  startInactivityTimer();
+}
+
+function handleStaySignedIn() {
+  recordUserActivity({ force: true });
+  setBanner("success", "Session activity confirmed. Auto logout timer reset.");
+}
+
+async function handleLogoutNowFromInactivity() {
+  await handleLogout({ reason: "manual" });
+}
+
+function handleDisableAutoLogout() {
+  state.autoLogoutEnabled = false;
+  localStorage.setItem(AUTO_LOGOUT_ENABLED_STORAGE_KEY, "false");
+  stopInactivityTimer();
+  resetInactivityWarning();
+  setBanner("warning", "Auto logout disabled for this browser.");
+  render();
 }
 
 function clearAvailabilityHeartbeatInterval() {
@@ -721,6 +884,44 @@ function availabilityDetailText() {
   if (state.availability.blockedReason) parts.push(state.availability.blockedReason.replace(/_/g, " "));
   if (state.availabilityHeartbeatError) parts.push(state.availabilityHeartbeatError);
   return parts.join(" | ");
+}
+
+function syncAdminNotificationMuteState() {
+  const mutedUntil = String(state.adminNotificationsMutedUntil ?? "").trim();
+  const active = Boolean(mutedUntil && !Number.isNaN(Date.parse(mutedUntil)) && Date.parse(mutedUntil) > Date.now());
+  state.adminNotificationsMuted = active;
+  if (!active) {
+    state.adminNotificationsMutedUntil = "";
+    state.adminNotificationsMutedChannel = "all";
+    localStorage.removeItem(ADMIN_NOTIFICATION_MUTE_STORAGE_KEY);
+  }
+  return active;
+}
+
+function setAdminNotificationMuteState({ mutedUntil = "", channel = "all" } = {}) {
+  state.adminNotificationsMutedUntil = String(mutedUntil ?? "").trim();
+  state.adminNotificationsMutedChannel = String(channel ?? "all").trim() || "all";
+  if (syncAdminNotificationMuteState()) {
+    localStorage.setItem(
+      ADMIN_NOTIFICATION_MUTE_STORAGE_KEY,
+      JSON.stringify({
+        mutedUntil: state.adminNotificationsMutedUntil,
+        channel: state.adminNotificationsMutedChannel,
+      }),
+    );
+  }
+}
+
+function adminNotificationMuteLabel() {
+  syncAdminNotificationMuteState();
+  if (!state.adminNotificationsMuted) return "Admin alerts active";
+  const until = formatTimeOnly(state.adminNotificationsMutedUntil) || "later";
+  return `Admin alerts muted until ${until}`;
+}
+
+function adminNotificationMuteButtonLabel() {
+  syncAdminNotificationMuteState();
+  return state.adminNotificationsMuted ? "Extend Mute" : "Mute Admin Alerts";
 }
 
 function buildScopeKey({ tenantId, product } = {}) {
@@ -1382,6 +1583,7 @@ async function rejectUnauthorizedSupportConsoleLogin() {
   const email = String(state.authEmail || currentAuthEmail() || "").trim();
   await signOutAllAuth();
   stopRealtimeAndPolling();
+  stopInactivityTimer();
   state.isAuthenticated = false;
   state.authBlocked = false;
   state.authMessage = "";
@@ -1394,6 +1596,7 @@ async function rejectUnauthorizedSupportConsoleLogin() {
   state.authOtpCode = "";
   state.authOtpSent = false;
   state.authBusy = false;
+  resetInactivityWarning();
   state.accessDenied = false;
   state.userRole = "";
   localStorage.removeItem(USER_ROLE_STORAGE_KEY);
@@ -1402,6 +1605,8 @@ async function rejectUnauthorizedSupportConsoleLogin() {
 
 async function completeAuthenticatedStartup() {
   state.isAuthenticated = true;
+  state.lastActivityAt = Date.now();
+  resetInactivityWarning();
   clearAuthBlockedState();
   state.accessDenied = false;
   state.authError = "";
@@ -1440,6 +1645,7 @@ async function completeAuthenticatedStartup() {
   }
 
   startRealtimeAndPolling();
+  startInactivityTimer();
 }
 
 async function handleFirebaseLogin() {
@@ -1544,17 +1750,21 @@ async function handleVerifyOtp() {
   }
 }
 
-async function handleLogout() {
+async function handleLogout({ reason = "manual" } = {}) {
   if (typeof confirmDialogResolver === "function") {
     confirmDialogResolver(false);
     confirmDialogResolver = null;
   }
   await signOutAllAuth();
   stopRealtimeAndPolling();
+  stopInactivityTimer();
 
   state.isAuthenticated = false;
   state.authBlocked = false;
-  state.authMessage = "";
+  state.authMessage =
+    reason === "inactivity"
+      ? "You were automatically logged out after inactivity."
+      : "";
   state.authError = "";
   state.authTokenDraft = "";
   state.authEmail = state.authRememberMe ? localStorage.getItem(REMEMBER_AUTH_EMAIL_KEY) ?? state.authEmail : "";
@@ -1564,6 +1774,7 @@ async function handleLogout() {
   state.authOtpCode = "";
   state.authOtpSent = false;
   state.authBusy = false;
+  resetInactivityWarning();
   state.confirmDialog = {
     open: false,
     title: "",
@@ -3304,13 +3515,16 @@ async function handleMuteAdminNotifications(channel = "all", minutes = 60) {
   render();
   try {
     const mutedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
-    await muteAdminNotifications({
+    const result = await muteAdminNotifications({
       channel,
       mutedUntil,
       reason: "Muted from support console",
     });
-    state.adminNotificationsMuted = true;
-    setBanner("success", `Admin notifications muted for ${minutes} minutes.`);
+    setAdminNotificationMuteState({
+      mutedUntil: result?.mute?.mutedUntil || mutedUntil,
+      channel: result?.mute?.channel || channel,
+    });
+    setBanner("success", `Admin notifications muted until ${formatTimeOnly(state.adminNotificationsMutedUntil)}.`);
   } catch (error) {
     await handleChatApiError("Mute admin notifications", error);
   } finally {
@@ -4687,6 +4901,29 @@ function renderConfirmDialog() {
   `;
 }
 
+function renderInactivityWarningDialog() {
+  if (!state.inactivityWarning?.open) return "";
+  const remaining = formatDuration(state.inactivityWarning.remainingSeconds);
+  return `
+    <div id="inactivity-dialog-backdrop" class="confirm-overlay" role="presentation">
+      <section class="confirm-dialog inactivity-dialog" role="dialog" aria-modal="true" aria-labelledby="inactivity-dialog-title">
+        <header class="confirm-dialog-header">
+          <h3 id="inactivity-dialog-title">Inactivity Warning</h3>
+        </header>
+        <div class="confirm-dialog-body">
+          <p>There has been no activity in the last hour. You will be automatically logged out in 5 minutes.</p>
+          <p class="inactivity-countdown">Time remaining: ${escapeHtml(remaining)}</p>
+        </div>
+        <footer class="confirm-dialog-actions">
+          <button id="disable-auto-logout-button" class="button button-quiet" type="button">Turn Off Auto Logout</button>
+          <button id="logout-now-button" class="button button-warning" type="button">Logout Now</button>
+          <button id="stay-signed-in-button" class="button button-primary" type="button">Stay Signed In</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
 function renderAssignDialog() {
   if (!state.assignDialog.open) return "";
   const session = getSelectedSessionContext();
@@ -5314,6 +5551,7 @@ function render() {
   captureSessionListScroll();
   captureDetailPanelScroll();
   const detailFocusState = captureDetailFormFocusState();
+  syncAdminNotificationMuteState();
 
   if (!state.isAuthenticated || state.authBlocked) {
     renderAuthScreen();
@@ -5411,14 +5649,23 @@ function render() {
             Agent Name
             <input id="agent-input" value="${escapeHtml(state.agentName)}" placeholder="Your name" />
           </label>
+          <label class="checkbox-row auto-logout-toggle">
+            <input id="auto-logout-input" type="checkbox" ${state.autoLogoutEnabled ? "checked" : ""} />
+            Auto logout after 1 hour
+          </label>
           <button id="diagnostics-toggle-button" class="button" type="button">
             ${state.showDiagnostics ? "Hide Diagnostics" : "Show Diagnostics"}
           </button>
           ${
             isSuperAdminRole()
-              ? `<button id="admin-mute-button" class="button button-quiet" type="button">${
-                  state.adminNotificationsMuted ? "Admin Muted" : "Mute Admin Alerts"
-                }</button>`
+              ? `<div class="admin-mute-control">
+                  <span class="admin-mute-status ${state.adminNotificationsMuted ? "is-muted" : "is-active"}">${escapeHtml(
+                    adminNotificationMuteLabel(),
+                  )}</span>
+                  <button id="admin-mute-button" class="button button-quiet" type="button">${escapeHtml(
+                    adminNotificationMuteButtonLabel(),
+                  )}</button>
+                </div>`
               : ""
           }
           ${
@@ -5496,6 +5743,7 @@ function render() {
       ${state.showDiagnostics ? renderDiagnosticsPanel() : ""}
     </div>
     ${renderConfirmDialog()}
+    ${renderInactivityWarningDialog()}
     ${renderAssignDialog()}
     ${renderTranscriptDialog()}
     ${renderAdminDialog()}
@@ -5535,6 +5783,24 @@ function bindEvents() {
     setTimeout(() => {
       confirmDialogConfirmButton.focus();
     }, 0);
+  }
+
+  const staySignedInButton = document.querySelector("#stay-signed-in-button");
+  if (staySignedInButton) {
+    staySignedInButton.addEventListener("click", handleStaySignedIn);
+    setTimeout(() => {
+      staySignedInButton.focus();
+    }, 0);
+  }
+
+  const logoutNowButton = document.querySelector("#logout-now-button");
+  if (logoutNowButton) {
+    logoutNowButton.addEventListener("click", handleLogoutNowFromInactivity);
+  }
+
+  const disableAutoLogoutButton = document.querySelector("#disable-auto-logout-button");
+  if (disableAutoLogoutButton) {
+    disableAutoLogoutButton.addEventListener("click", handleDisableAutoLogout);
   }
 
   const assignDialogCancelButton = document.querySelector("#assign-dialog-cancel");
@@ -5706,6 +5972,23 @@ function bindEvents() {
   if (settingsForm) {
     settingsForm.addEventListener("submit", (event) => {
       event.preventDefault();
+    });
+  }
+
+  const autoLogoutInput = document.querySelector("#auto-logout-input");
+  if (autoLogoutInput) {
+    autoLogoutInput.addEventListener("change", (event) => {
+      state.autoLogoutEnabled = Boolean(event.target.checked);
+      localStorage.setItem(AUTO_LOGOUT_ENABLED_STORAGE_KEY, state.autoLogoutEnabled ? "true" : "false");
+      if (state.autoLogoutEnabled) {
+        startInactivityTimer();
+        setBanner("success", "Auto logout enabled. Idle sessions warn after 1 hour.");
+      } else {
+        stopInactivityTimer();
+        resetInactivityWarning();
+        setBanner("warning", "Auto logout disabled for this browser.");
+      }
+      render();
     });
   }
 
@@ -6240,9 +6523,20 @@ async function bootstrap() {
 
 window.addEventListener("beforeunload", () => {
   stopRealtimeAndPolling();
+  stopInactivityTimer();
 });
 
 window.addEventListener("pointerdown", unlockNotificationSound, { once: true });
 window.addEventListener("keydown", unlockNotificationSound, { once: true });
+
+["pointerdown", "keydown", "touchstart", "wheel", "focus"].forEach((eventName) => {
+  window.addEventListener(
+    eventName,
+    () => {
+      recordUserActivity();
+    },
+    { passive: true },
+  );
+});
 
 bootstrap();

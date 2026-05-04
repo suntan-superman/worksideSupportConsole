@@ -337,6 +337,62 @@ body {
   font-size: 0.78rem;
 }
 
+.admin-mute-control {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-mute-status {
+  align-self: center;
+  border: 1px solid #c8d8eb;
+  border-radius: 999px;
+  background: #eef5fd;
+  color: #365474;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.admin-mute-status.is-muted {
+  border-color: #f0d3ab;
+  background: #fff3de;
+  color: #734100;
+}
+
+.admin-mute-status.is-active {
+  border-color: #b7dfc8;
+  background: #ecfaf2;
+  color: #0b6f43;
+}
+
+.auto-logout-toggle {
+  align-self: center;
+  color: #365474 !important;
+  font-weight: 800;
+  min-height: 40px;
+}
+
+.auto-logout-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.inactivity-dialog {
+  max-width: 560px;
+}
+
+.inactivity-countdown {
+  border: 1px solid #f0d3ab;
+  border-radius: 10px;
+  background: #fff8ee;
+  color: #734100 !important;
+  font-weight: 900;
+  padding: 10px;
+}
+
 .settings-form input,
 .settings-form select,
 .search-wrap input,
@@ -2064,6 +2120,17 @@ body {
 
   .settings-form label {
     flex: 1 1 100%;
+  }
+
+  .admin-mute-control {
+    width: 100%;
+  }
+
+  .admin-mute-status,
+  .admin-mute-control .button {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
   }
 
   .settings-form input,
