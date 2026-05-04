@@ -7,8 +7,9 @@
     "dev": "vite --open --port 3000",
     "start": "vite --open --port 3000",
     "build": "vite build",
-    "test": "vitest run tests/chat.normalize.test.js --pool=threads",
+    "test": "vitest run tests/chat.normalize.test.js tests/filterSummary.test.js tests/sessionListRender.test.js tests/dialogRender.test.js tests/routingNotificationsRender.test.js tests/inactivityState.test.js --pool=threads",
     "test:e2e": "playwright test",
+    "test:e2e:live:support": "playwright test --config=playwright.live.config.js",
     "preview": "vite preview"
   },
   "devDependencies": {

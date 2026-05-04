@@ -1,5 +1,24 @@
 import "./style.css";
 import {
+  renderConfirmDialog as renderConfirmDialogMarkup,
+  renderInactivityWarningDialog as renderInactivityWarningDialogMarkup,
+} from "./render/dialogs";
+import { renderActiveFilterSummary as renderFilterSummary } from "./render/filterSummary";
+import {
+  renderMessages as renderMessageList,
+  renderSessionList as renderSessionCards,
+} from "./render/sessionList";
+import {
+  renderRoutingNotificationsPanel as renderRoutingNotificationsMarkup,
+  renderSessionOperationsSummary as renderSessionOperationsSummaryMarkup,
+} from "./render/routingNotifications";
+import {
+  buildInactivityWarning,
+  defaultInactivityWarning,
+  formatDuration,
+  getInactivityCheckResult,
+} from "./state/inactivity";
+import {
   assignSupportSession,
   closeSupportSession,
   createSupportDepartment,
@@ -589,11 +608,7 @@ function stopInactivityTimer() {
 }
 
 function resetInactivityWarning() {
-  state.inactivityWarning = {
-    open: false,
-    logoutAt: 0,
-    remainingSeconds: 0,
-  };
+  state.inactivityWarning = defaultInactivityWarning();
 }
 
 function recordUserActivity({ force = false } = {}) {
@@ -606,42 +621,39 @@ function recordUserActivity({ force = false } = {}) {
   }
 }
 
-function formatDuration(seconds) {
-  const total = Math.max(0, Math.ceil(Number(seconds) || 0));
-  const minutes = Math.floor(total / 60);
-  const remainder = total % 60;
-  if (minutes <= 0) return `${remainder} second${remainder === 1 ? "" : "s"}`;
-  if (remainder === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
 function showInactivityWarning() {
-  const logoutAt = Date.now() + AUTO_LOGOUT_WARNING_MS;
-  state.inactivityWarning = {
-    open: true,
-    logoutAt,
-    remainingSeconds: Math.ceil(AUTO_LOGOUT_WARNING_MS / 1000),
-  };
+  state.inactivityWarning = buildInactivityWarning({
+    now: Date.now(),
+    warningMs: AUTO_LOGOUT_WARNING_MS,
+  });
   playInactivityWarningSound();
   render();
 }
 
 async function runInactivityCheck() {
-  if (!state.isAuthenticated || !state.autoLogoutEnabled) return;
   const now = Date.now();
-  if (state.inactivityWarning?.open) {
-    const remainingSeconds = Math.max(0, Math.ceil((state.inactivityWarning.logoutAt - now) / 1000));
-    if (remainingSeconds !== state.inactivityWarning.remainingSeconds) {
-      state.inactivityWarning.remainingSeconds = remainingSeconds;
-      render();
-    }
-    if (remainingSeconds <= 0) {
-      await handleLogout({ reason: "inactivity" });
-    }
+  const result = getInactivityCheckResult({
+    isAuthenticated: state.isAuthenticated,
+    autoLogoutEnabled: state.autoLogoutEnabled,
+    warning: state.inactivityWarning,
+    lastActivityAt: state.lastActivityAt,
+    now,
+    idleMs: AUTO_LOGOUT_IDLE_MS,
+  });
+
+  if (result.action === "update_countdown") {
+    state.inactivityWarning.remainingSeconds = result.remainingSeconds;
+    render();
     return;
   }
 
-  if (now - state.lastActivityAt >= AUTO_LOGOUT_IDLE_MS) {
+  if (result.action === "logout") {
+    state.inactivityWarning.remainingSeconds = result.remainingSeconds;
+    await handleLogout({ reason: "inactivity" });
+    return;
+  }
+
+  if (result.action === "warn") {
     showInactivityWarning();
   }
 }
@@ -3996,143 +4008,37 @@ async function handleCloseNoFollowUp() {
 }
 
 function renderSessionList(sessions) {
-  if (state.loadingSessions && sessions.length === 0) {
-    return `<div class="empty-state">Loading sessions...</div>`;
-  }
-
-  if (state.accessDenied) {
-    return `<div class="empty-state">You are signed in, but your account does not have access to support sessions.</div>`;
-  }
-
-  if (sessions.length === 0) {
-    return `<div class="empty-state">No conversations match the selected filters.</div>`;
-  }
-
-  return sessions
-    .map((session) => {
-      const inferredContactName = inferredContactNameForSession(session);
-      const label = session.leadName || inferredContactName || session.leadEmail || "Anonymous visitor";
-      const leadState = hasRequiredLeadIdentity(session) ? "Lead captured" : "Lead missing";
-      const tenantLabel = session.tenantName || session.organizationName || session.tenantId || "Unknown tenant";
-      const compactTenantLabel = abbreviateMiddle(tenantLabel, { max: 28, keep: 8 });
-      const assignedTo = session.assignedToName || session.assignedToEmail || session.assignedToUserId || "Unassigned";
-      const isSelected = session.id === state.selectedSessionId;
-      return `
-        <button class="session-card ${isSelected ? "is-selected" : ""}" data-session-id="${escapeHtml(
-          session.id,
-        )}">
-          <div class="session-card-row">
-            <strong class="session-title">${escapeHtml(label)}</strong>
-            <span class="${statusClass(session.status)}">${statusLabel(session.status)}</span>
-          </div>
-          <div class="session-card-row">
-            <span class="badge badge-product">${escapeHtml(productLabelFromKey(session.productKey))}</span>
-            <span class="session-tenant" title="${escapeHtml(tenantLabel)}">${escapeHtml(compactTenantLabel)}</span>
-          </div>
-          <div class="session-subline">
-            <span>${escapeHtml(leadState)} | ${escapeHtml(session.inquiryUrgency || "n/a")} urgency</span>
-            <span>${escapeHtml(assignedTo)}</span>
-          </div>
-          <p class="session-preview">${escapeHtml(
-            session.lastMessagePreview || "No message preview available.",
-          )}</p>
-          <div class="session-time">${formatTimestamp(session.updatedAt)}</div>
-        </button>
-      `;
-    })
-    .join("");
-}
-
-function supportUserLabelFromId(value) {
-  const selected = String(value ?? "").trim();
-  if (!selected) return "All";
-  if (selected === "unassigned") return "Unassigned";
-  const normalized = selected.toLowerCase();
-  const user = state.supportUsers.find((item) => {
-    return (
-      String(item.id ?? "").toLowerCase() === normalized ||
-      String(item.email ?? "").toLowerCase() === normalized ||
-      String(item.name ?? "").toLowerCase() === normalized
-    );
+  return renderSessionCards({
+    sessions,
+    loadingSessions: state.loadingSessions,
+    accessDenied: state.accessDenied,
+    selectedSessionId: state.selectedSessionId,
+    inferredContactNameForSession,
+    hasRequiredLeadIdentity,
+    abbreviateMiddle,
+    productLabelFromKey,
+    statusClass,
+    statusLabel,
+    formatTimestamp,
+    escapeHtml,
   });
-  return user?.name || user?.email || selected;
-}
-
-function tenantLabelFromId(value) {
-  const selected = String(value ?? "").trim();
-  if (!selected) return "All";
-  return state.tenantOptions.find((item) => item.id === selected)?.name || selected;
-}
-
-function productFilterLabel(value) {
-  const selected = String(value ?? "").trim();
-  if (!selected) return "All";
-  return state.productOptions.find((item) => item.id === selected)?.label || productLabelFromKey(selected);
-}
-
-function hasActiveSupportFilters() {
-  const filters = state.supportFilters;
-  return Boolean(
-    filters.product ||
-      filters.tenantId ||
-      filters.status ||
-      filters.urgency ||
-      filters.assignedTo ||
-      state.search.trim(),
-  );
 }
 
 function renderActiveFilterSummary() {
-  const filters = state.supportFilters;
-  const parts = [
-    `Product = ${productFilterLabel(filters.product)}`,
-    `Tenant = ${tenantLabelFromId(filters.tenantId)}`,
-    `Status = ${filters.status ? statusLabel(filters.status) : "All"}`,
-    `Urgency = ${filters.urgency || "All"}`,
-    `Assigned = ${supportUserLabelFromId(filters.assignedTo)}`,
-  ];
-  if (state.search.trim()) {
-    parts.push(`Search = ${state.search.trim()}`);
-  }
-  return `
-    <div class="filter-summary">
-      <span>Filters: ${escapeHtml(parts.join(" | "))}</span>
-      ${
-        hasActiveSupportFilters()
-          ? `<button id="clear-filters-button" class="button button-compact button-quiet" type="button">Clear filters</button>`
-          : ""
-      }
-    </div>
-  `;
+  return renderFilterSummary({
+    filters: state.supportFilters,
+    search: state.search,
+    products: state.productOptions,
+    tenants: state.tenantOptions,
+    supportUsers: state.supportUsers,
+    productLabelFromKey,
+    statusLabel,
+    escapeHtml,
+  });
 }
 
 function renderMessages(messages) {
-  if (!messages.length) {
-    return `<div class="empty-state">No conversation messages yet.</div>`;
-  }
-
-  return messages
-    .map((message) => {
-      const bubbleClass = `message message-${message.sender}`;
-      const senderLabel =
-        message.sender === "visitor"
-          ? "Visitor"
-          : message.sender === "agent"
-            ? "Agent"
-            : message.sender === "ai"
-              ? "AI"
-              : "System";
-      return `
-        <article class="${bubbleClass}">
-          <header>
-            <span>${senderLabel}</span>
-            <time>${formatTimestamp(message.createdAt)}</time>
-          </header>
-          <p>${escapeHtml(message.body || "(empty message)")}</p>
-        </article>
-      `;
-    })
-    .join("");
+  return renderMessageList({ messages, formatTimestamp, escapeHtml });
 }
 
 function renderDiagnosticsPanel() {
@@ -4198,126 +4104,20 @@ function renderDiagnosticsPanel() {
 }
 
 function renderSessionOperationsSummary(session) {
-  const latestAssignment = session.latestAssignment;
-  const assignmentLabel = latestAssignment
-    ? latestAssignment.assignedToName ||
-      latestAssignment.assignedToEmail ||
-      latestAssignment.assignedToUserId ||
-      "Assigned"
-    : session.assignedToName || session.assignedToEmail || session.assignedToUserId || "Unassigned";
-  const assignmentMeta = latestAssignment?.assignedAt
-    ? `Updated ${formatTimestamp(latestAssignment.assignedAt)}`
-    : session.departmentLabel
-      ? "Current routing"
-      : "No assignment history";
-  const transcriptLabel = session.lastTranscriptSentAt
-    ? `Sent ${formatTimestamp(session.lastTranscriptSentAt)}`
-    : "Not sent";
-  const transcriptMeta = session.lastTranscriptSentTo
-    ? `To ${session.lastTranscriptSentTo}`
-    : "No transcript email recorded";
-  const routingLabel = session.routingStatus
-    ? session.routingStatus.replace(/_/g, " ")
-    : isSessionEscalated(session)
-      ? "waiting acceptance"
-      : "unassigned";
-  const routingMeta = session.availabilityOutcome
-    ? session.availabilityOutcome.replace(/_/g, " ")
-    : session.intent
-      ? `Intent: ${session.intent}`
-      : "No routing outcome";
-
-  return `
-    <section class="operations-summary" aria-label="Assignment and transcript status">
-      <article>
-        <span>Assignment</span>
-        <strong>${escapeHtml(assignmentLabel)}</strong>
-        <p>${escapeHtml(assignmentMeta)}</p>
-      </article>
-      <article>
-        <span>Department</span>
-        <strong>${escapeHtml(latestAssignment?.departmentLabel || session.departmentLabel || "Unassigned")}</strong>
-        <p>${escapeHtml(latestAssignment?.note || "No assignment note")}</p>
-      </article>
-      <article>
-        <span>Routing</span>
-        <strong>${escapeHtml(routingLabel)}</strong>
-        <p>${escapeHtml(routingMeta)}</p>
-      </article>
-      <article>
-        <span>Transcript</span>
-        <strong>${escapeHtml(transcriptLabel)}</strong>
-        <p>${escapeHtml(transcriptMeta)}</p>
-      </article>
-    </section>
-  `;
-}
-
-function notificationStatusLabel(value) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw) return "Unknown";
-  return raw.replace(/_/g, " ");
+  return renderSessionOperationsSummaryMarkup({
+    session,
+    formatTimestamp,
+    escapeHtml,
+    isSessionEscalated,
+  });
 }
 
 function renderRoutingNotificationsPanel(session) {
-  const notificationStatus = session.notificationStatus || {};
-  const timeline = Array.isArray(session.notificationTimeline) ? session.notificationTimeline : [];
-  const assignedTo = session.assignedToName || session.assignedToEmail || session.assignedToUserId || "Unassigned";
-  const department = session.departmentLabel || session.departmentId || "Unassigned";
-  const routing = session.routingStatus ? session.routingStatus.replace(/_/g, " ") : "unassigned";
-  const availability = session.availabilityOutcome ? session.availabilityOutcome.replace(/_/g, " ") : "No outcome recorded";
-  const attempted = notificationStatus.attempted ? "Attempted" : "Not attempted";
-  const muted = notificationStatus.muted ? "Muted" : "Not muted";
-
-  return `
-    <section class="routing-notifications" aria-label="Routing and notifications">
-      <header>
-        <div>
-          <h3>Routing / Notifications</h3>
-          <p>Backend routing, assignment, and human handoff notification results.</p>
-        </div>
-      </header>
-      <div class="routing-notifications-grid">
-        <article>
-          <span>Routing status</span>
-          <strong>${escapeHtml(routing)}</strong>
-          <p>${escapeHtml(availability)}</p>
-        </article>
-        <article>
-          <span>Assigned user</span>
-          <strong>${escapeHtml(assignedTo)}</strong>
-          <p>${escapeHtml(department)}</p>
-        </article>
-        <article>
-          <span>Notification</span>
-          <strong>${escapeHtml(attempted)}</strong>
-          <p>${escapeHtml(notificationStatus.reason || muted)}</p>
-        </article>
-      </div>
-      <div class="notification-timeline">
-        ${
-          timeline.length
-            ? timeline
-                .map((item) => {
-                  const label = [item.channel || "notification", item.recipient ? `to ${item.recipient}` : ""]
-                    .filter(Boolean)
-                    .join(" ");
-                  const status = notificationStatusLabel(item.status);
-                  const detail = item.reason || item.error || item.provider || item.messageId || "No additional detail";
-                  return `
-                    <article>
-                      <strong>${escapeHtml(label)}</strong>
-                      <span>${escapeHtml(status)}${item.attemptedAt ? ` | ${escapeHtml(formatTimestamp(item.attemptedAt))}` : ""}</span>
-                      <p>${escapeHtml(detail)}</p>
-                    </article>
-                  `;
-                })
-                .join("")
-            : `<p class="notification-empty">No notification attempts have been recorded for this session.</p>`
-        }
-      </div>
-    </section>
-  `;
+  return renderRoutingNotificationsMarkup({
+    session,
+    formatTimestamp,
+    escapeHtml,
+  });
 }
 
 function renderLiveTransferPanel({
@@ -4874,54 +4674,15 @@ function renderDetailPanel() {
 }
 
 function renderConfirmDialog() {
-  if (!state.confirmDialog?.open) return "";
-  const confirmToneClass =
-    state.confirmDialog.confirmTone === "warning" ? "button button-warning" : "button button-primary";
-  return `
-    <div id="confirm-dialog-backdrop" class="confirm-overlay" role="presentation">
-      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
-        <header class="confirm-dialog-header">
-          <h3 id="confirm-dialog-title">${escapeHtml(state.confirmDialog.title || "Please Confirm")}</h3>
-        </header>
-        <div class="confirm-dialog-body">
-          ${(state.confirmDialog.lines ?? [])
-            .map((line) => `<p>${escapeHtml(line)}</p>`)
-            .join("")}
-        </div>
-        <footer class="confirm-dialog-actions">
-          <button id="confirm-dialog-cancel" class="button button-quiet" type="button">${escapeHtml(
-            state.confirmDialog.cancelLabel || "Cancel",
-          )}</button>
-          <button id="confirm-dialog-confirm" class="${confirmToneClass}" type="button">${escapeHtml(
-            state.confirmDialog.confirmLabel || "Confirm",
-          )}</button>
-        </footer>
-      </section>
-    </div>
-  `;
+  return renderConfirmDialogMarkup({ dialog: state.confirmDialog, escapeHtml });
 }
 
 function renderInactivityWarningDialog() {
-  if (!state.inactivityWarning?.open) return "";
-  const remaining = formatDuration(state.inactivityWarning.remainingSeconds);
-  return `
-    <div id="inactivity-dialog-backdrop" class="confirm-overlay" role="presentation">
-      <section class="confirm-dialog inactivity-dialog" role="dialog" aria-modal="true" aria-labelledby="inactivity-dialog-title">
-        <header class="confirm-dialog-header">
-          <h3 id="inactivity-dialog-title">Inactivity Warning</h3>
-        </header>
-        <div class="confirm-dialog-body">
-          <p>There has been no activity in the last hour. You will be automatically logged out in 5 minutes.</p>
-          <p class="inactivity-countdown">Time remaining: ${escapeHtml(remaining)}</p>
-        </div>
-        <footer class="confirm-dialog-actions">
-          <button id="disable-auto-logout-button" class="button button-quiet" type="button">Turn Off Auto Logout</button>
-          <button id="logout-now-button" class="button button-warning" type="button">Logout Now</button>
-          <button id="stay-signed-in-button" class="button button-primary" type="button">Stay Signed In</button>
-        </footer>
-      </section>
-    </div>
-  `;
+  return renderInactivityWarningDialogMarkup({
+    warning: state.inactivityWarning,
+    formatDuration,
+    escapeHtml,
+  });
 }
 
 function renderAssignDialog() {

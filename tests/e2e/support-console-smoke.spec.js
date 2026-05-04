@@ -112,7 +112,7 @@ test("loads sessions and selects a session detail", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
-  await page.getByRole("button", { name: /Ada Lovelace/ }).click();
+  await page.locator('[data-testid="session-row"]').first().click();
   await expect(page.getByRole("heading", { name: /Session smoke-1/ })).toBeVisible();
   await expect(page.getByText("Routing / Notifications")).toBeVisible();
   await expect(page.getByText("email to stan@example.com")).toBeVisible();

@@ -1,334 +1,130 @@
-Goal
-When a visitor requests a human, backend should decide whether an available support person exists for the request type, assign or queue the session accordingly, notify the right people, and return clear state to the support console.
+I’m going to give you 3 production-relevant Playwright tests tailored to your system, not generic examples.
 
-Departments
-Create/standardize these initial departments:
+👉 These will test:
 
-sales
-support
-billing
-general
-Department model:
+Support Console login + sessions
+Agent takeover + reply
+Public chat → support handoff
+📁 1. Setup (one-time)
 
-{
-  "id": "support",
-  "label": "Support",
-  "product": "merxus",
-  "active": true,
-  "defaultAssigneeIds": [],
-  "fallbackDepartmentId": "general",
-  "createdAt": "...",
-  "updatedAt": "..."
-}
-Prevent duplicate department IDs per product.
+If not already done:
 
-Support User Model
-Extend support users with availability and notifications:
+npm install -D @playwright/test
+npx playwright install
+
+Add to package.json:
 
 {
-  "id": "firebase_uid_or_internal_id",
-  "name": "Mike",
-  "email": "mike@example.com",
-  "phone": "+16613451154",
-  "role": "support_agent",
-  "active": true,
-  "departments": ["support", "general"],
-  "allowedProducts": ["merxus"],
-  "allowedTenantIds": ["*"],
-  "availability": {
-    "status": "available",
-    "manualOverride": false,
-    "quietUntil": null,
-    "lastSeenAt": "2026-05-02T17:00:00.000Z",
-    "updatedAt": "2026-05-02T17:00:00.000Z"
-  },
-  "notificationPreferences": {
-    "sms": true,
-    "email": true,
-    "consoleSound": true,
-    "adminEscalations": true
+  "scripts": {
+    "test:e2e": "playwright test"
   }
 }
-Availability statuses:
+📁 Folder structure
+tests/
+  support-login.spec.js
+  support-flow.spec.js
+  public-chat.spec.js
+🧪 TEST 1 — Support Console Login + Sessions
+📄 tests/support-login.spec.js
+import { test, expect } from '@playwright/test';
 
-available
-busy
-away
-offline
-do_not_disturb
-A user is available only if:
+test('Support Console loads sessions after login', async ({ page }) => {
+  await page.goto('https://support.worksidesoftware.com');
 
-active === true
-matching department
-matching product
-matching tenant access
-availability.status === "available"
-quietUntil is null or expired
-either manualOverride === true or lastSeenAt is recent enough
-Recommended recent threshold:
+  // Fill login form
+  await page.fill('input[type="email"]', 'YOUR_TEST_EMAIL');
+  await page.fill('input[type="password"]', 'YOUR_TEST_PASSWORD');
 
-lastSeenAt within 2 minutes
-Availability Endpoints
+  await page.click('button:has-text("Sign In")');
 
-GET /support/users/me/availability
-POST /support/users/me/availability
-Request:
+  // Wait for sessions list to appear
+  await expect(page.locator('text=Sessions')).toBeVisible({ timeout: 15000 });
 
-{
-  "status": "available",
-  "manualOverride": true,
-  "quietUntil": null
-}
-Response:
+  // Verify at least one session row loads
+  const sessionRows = page.locator('[data-testid="session-row"]');
+  await expect(sessionRows.first()).toBeVisible();
+});
+🧪 TEST 2 — Takeover + Reply Flow
+📄 tests/support-flow.spec.js
+import { test, expect } from '@playwright/test';
 
-{
-  "availability": {
-    "status": "available",
-    "manualOverride": true,
-    "quietUntil": null,
-    "lastSeenAt": "2026-05-02T17:00:00.000Z",
-    "updatedAt": "2026-05-02T17:00:00.000Z"
+test('Agent can accept transfer and reply', async ({ page }) => {
+  await page.goto('https://support.worksidesoftware.com');
+
+  // Login
+  await page.fill('input[type="email"]', 'YOUR_TEST_EMAIL');
+  await page.fill('input[type="password"]', 'YOUR_TEST_PASSWORD');
+  await page.click('button:has-text("Sign In")');
+
+  // Wait for sessions
+  await expect(page.locator('text=Sessions')).toBeVisible();
+
+  // Click first session
+  const firstSession = page.locator('[data-testid="session-row"]').first();
+  await firstSession.click();
+
+  // Accept transfer if needed
+  const acceptButton = page.locator('button:has-text("Accept")');
+  if (await acceptButton.isVisible()) {
+    await acceptButton.click();
   }
-}
-Also add heartbeat:
 
-POST /support/users/me/heartbeat
-Response:
+  // Type reply
+  const messageBox = page.locator('textarea');
+  await messageBox.fill('Test reply from Playwright');
 
-{
-  "ok": true,
-  "lastSeenAt": "2026-05-02T17:00:00.000Z"
-}
-The frontend can call heartbeat every 30-60 seconds while logged in.
+  await page.click('button:has-text("Send")');
 
-Admin Availability Endpoints
+  // Verify message appears
+  await expect(page.locator('text=Test reply from Playwright')).toBeVisible();
+});
+🧪 TEST 3 — Public Chat → Human Request
+📄 tests/public-chat.spec.js
+import { test, expect } from '@playwright/test';
 
-For super_admin/support_admin:
+test('Visitor can request human from public chat', async ({ page }) => {
+  await page.goto('https://worksidesoftware.com');
 
-GET /support/admin/users
-PATCH /support/admin/users/:userId
-Allow admin to update:
+  // Open chat widget
+  const chatButton = page.locator('[data-testid="chat-open-button"]');
+  await chatButton.click();
 
-{
-  "departments": ["support"],
-  "phone": "+16613451154",
-  "notificationPreferences": {
-    "sms": true,
-    "email": true,
-    "consoleSound": true,
-    "adminEscalations": true
-  },
-  "availability": {
-    "status": "available",
-    "manualOverride": true,
-    "quietUntil": null
-  }
-}
-Intent Classification
-When visitor requests a person, classify intent into:
+  // Send initial message
+  const chatInput = page.locator('textarea');
+  await chatInput.fill('I want to speak to someone');
+  await page.keyboard.press('Enter');
 
-sales
-support
-billing
-general
-Use available structured hints first:
+  // Expect prompt for name/email
+  await expect(page.locator('text=Before we connect you')).toBeVisible();
 
-{
-  "intent": "support"
-}
-Fallback keyword examples:
+  // Fill contact info
+  await page.fill('input[name="name"]', 'Test User');
+  await page.fill('input[name="email"]', 'test@example.com');
 
-sales: pricing, demo, buy, plan, quote
-billing: invoice, charge, payment, refund
-support: help, broken, issue, problem, error
-general: unknown/default
-Persist:
+  // Request human
+  await page.click('button:has-text("Talk to a person")');
 
-{
-  "intent": "support",
-  "departmentId": "support"
-}
-Human Request / Transfer Route
-When the visitor asks for a human, backend should:
+  // Confirm message
+  await expect(page.locator('text=notifying our team')).toBeVisible();
+});
+⚠️ IMPORTANT (Adjust these selectors)
 
-Persist visitor message.
-Capture lead/contact fields if supplied.
-Classify intent.
-Find matching department.
-Find available support users.
-Assign if available, otherwise queue.
-Notify support/admin as appropriate.
-Return updated session.
-Canonical session update if available agent found:
+You will likely need to update:
 
-{
-  "status": "escalated",
-  "transferRequested": true,
-  "transferRequestedAt": "2026-05-02T17:00:00.000Z",
-  "transferReason": "user_requested_human",
-  "intent": "support",
-  "departmentId": "support",
-  "departmentLabel": "Support",
-  "routingStatus": "assigned",
-  "availabilityOutcome": "available_agent_found",
-  "assignedToUserId": "user_id",
-  "assignedToName": "Mike",
-  "assignedToEmail": "mike@example.com"
-}
-If nobody is available:
+[data-testid="session-row"]
+[data-testid="chat-open-button"]
+textarea
 
-{
-  "status": "escalated",
-  "transferRequested": true,
-  "transferRequestedAt": "2026-05-02T17:00:00.000Z",
-  "transferReason": "user_requested_human",
-  "intent": "support",
-  "departmentId": "support",
-  "departmentLabel": "Support",
-  "routingStatus": "queued_no_agent_available",
-  "availabilityOutcome": "no_available_agent",
-  "assignedToUserId": "",
-  "assignedToName": "",
-  "assignedToEmail": ""
-}
-Customer Chat Response
-If agent is available:
+👉 Add data-testid attributes in your UI for stability.
 
-I'm connecting you with someone now.
-If no one is available:
+🔥 Pro Tip (DO THIS)
 
-No one is available right now, but someone will follow up shortly.
-If contact info is missing:
+In your React code:
 
-Please leave your name and email so someone can follow up.
-Notifications
-When available agent found:
+<div data-testid="session-row">
+<button data-testid="chat-open-button">
 
-Notify assigned support user by SMS if enabled.
-Notify console clients via realtime/poll state.
-Optional email if enabled.
-SMS example:
+👉 This makes tests bulletproof
 
-New Merxus support request from Jerry Seinfeld. Intent: Support. Open the support console to accept the transfer.
-When no agent available:
-
-Notify admins/supervisors unless muted.
-Optional SMS/email based on preferences.
-Admin SMS example:
-
-Merxus support request is waiting with no available support agent. Intent: Support. Customer: Jerry Seinfeld.
-Admin Mute / Silence
-Add admin notification mute:
-
-POST /support/admin/notification-mute
-Request:
-
-{
-  "channel": "sms",
-  "mutedUntil": "2026-05-02T19:00:00.000Z",
-  "reason": "In meeting"
-}
-Channels:
-
-sms
-email
-console_sound
-all
-Backend must respect mute settings for admin escalation notifications.
-
-Session List / Detail Payload
-Both routes must return routing fields:
-
-GET /support/sessions
-GET /support/sessions/:sessionId
-Include:
-
-{
-  "intent": "support",
-  "departmentId": "support",
-  "departmentLabel": "Support",
-  "routingStatus": "assigned",
-  "availabilityOutcome": "available_agent_found",
-  "assignedToUserId": "user_id",
-  "assignedToName": "Mike",
-  "assignedToEmail": "mike@example.com",
-  "transferRequested": true,
-  "status": "escalated"
-}
-Routing Status Values
-
-unassigned
-assigned
-queued_no_agent_available
-queued_waiting_acceptance
-accepted
-closed
-routing_failed
-Availability Outcome Values
-
-available_agent_found
-no_available_agent
-no_matching_department
-no_matching_support_user
-routing_error
-Error Contract
-Use structured errors:
-
-{
-  "error": {
-    "code": "NO_AVAILABLE_AGENT",
-    "message": "No support agent is currently available.",
-    "requiredAction": "queue_followup"
-  }
-}
-Suggested codes:
-
-INVALID_AVAILABILITY_STATUS
-SUPPORT_USER_NOT_FOUND
-SUPPORT_USER_INACTIVE
-DEPARTMENT_NOT_FOUND
-NO_MATCHING_SUPPORT_USER
-NO_AVAILABLE_AGENT
-ROUTING_FAILED
-NOTIFICATION_FAILED
-Important: notification failure should not roll back the session routing state. Persist routing first, then record notification failure separately.
-
-Audit Events
-Persist audit events for:
-
-human_requested
-intent_classified
-routing_attempted
-agent_assigned
-no_agent_available
-support_user_notified
-admin_notified
-notification_failed
-availability_changed
-heartbeat_received
-transfer_accepted
-Example:
-
-{
-  "sessionId": "CA...",
-  "event": "agent_assigned",
-  "createdAt": "...",
-  "actorType": "system",
-  "data": {
-    "departmentId": "support",
-    "assignedToUserId": "user_id",
-    "availabilityOutcome": "available_agent_found"
-  }
-}
-Acceptance Criteria
-
-Visitor requests human.
-Backend persists status: "escalated" and transferRequested: true.
-Backend classifies intent into sales/support/billing/general.
-If available matching user exists, session is assigned to that user.
-Assigned user receives SMS if enabled.
-If no user is available, session remains queued and customer is told someone will follow up.
-Admin receives notification unless muted.
-GET /support/sessions shows routing status and availability outcome.
-Console queue count increases for human-requested sessions.
-Notification failure does not lose the transfer request.
+🧪 Run tests
+npm run test:e2e
