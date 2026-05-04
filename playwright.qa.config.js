@@ -5,7 +5,7 @@ Object.assign(process.env, loadEnv("", process.cwd(), ""));
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: ["support-login.spec.js", "support-flow.spec.js"],
+  testMatch: ["support-failures.spec.js", "support-edge-cases.spec.js"],
   use: {
     baseURL: process.env.PLAYWRIGHT_SUPPORT_CONSOLE_URL || "https://support.worksidesoftware.com",
   },

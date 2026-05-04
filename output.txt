@@ -1,130 +1,30 @@
-I’m going to give you 3 production-relevant Playwright tests tailored to your system, not generic examples.
+PS C:\Users\sjroy\Source\WorksideSupportConsole> npx playwright test --config=playwright.public.config.js --headed
+>>
 
-👉 These will test:
+Running 1 test using 1 worker
 
-Support Console login + sessions
-Agent takeover + reply
-Public chat → support handoff
-📁 1. Setup (one-time)
+  x  1 tests\public-chat.spec.js:3:1 › Visitor can request human from public chat (30.1s)
 
-If not already done:
 
-npm install -D @playwright/test
-npx playwright install
+  1) tests\public-chat.spec.js:3:1 › Visitor can request human from public chat ────────────────────
 
-Add to package.json:
+    Test timeout of 30000ms exceeded.
 
-{
-  "scripts": {
-    "test:e2e": "playwright test"
-  }
-}
-📁 Folder structure
-tests/
-  support-login.spec.js
-  support-flow.spec.js
-  public-chat.spec.js
-🧪 TEST 1 — Support Console Login + Sessions
-📄 tests/support-login.spec.js
-import { test, expect } from '@playwright/test';
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for locator('[data-testid="chat-open-button"]')
 
-test('Support Console loads sessions after login', async ({ page }) => {
-  await page.goto('https://support.worksidesoftware.com');
 
-  // Fill login form
-  await page.fill('input[type="email"]', 'YOUR_TEST_EMAIL');
-  await page.fill('input[type="password"]', 'YOUR_TEST_PASSWORD');
+       6 |   // Open chat widget
+       7 |   const chatButton = page.locator('[data-testid="chat-open-button"]');
+    >  8 |   await chatButton.click();
+         |                    ^
+       9 |
+      10 |   // Send initial message
+      11 |   const chatInput = page.locator('textarea');
+        at C:\Users\sjroy\Source\WorksideSupportConsole\tests\public-chat.spec.js:8:20
 
-  await page.click('button:has-text("Sign In")');
+    Error Context: test-results\public-chat-Visitor-can-request-human-from-public-chat\error-context.md
 
-  // Wait for sessions list to appear
-  await expect(page.locator('text=Sessions')).toBeVisible({ timeout: 15000 });
-
-  // Verify at least one session row loads
-  const sessionRows = page.locator('[data-testid="session-row"]');
-  await expect(sessionRows.first()).toBeVisible();
-});
-🧪 TEST 2 — Takeover + Reply Flow
-📄 tests/support-flow.spec.js
-import { test, expect } from '@playwright/test';
-
-test('Agent can accept transfer and reply', async ({ page }) => {
-  await page.goto('https://support.worksidesoftware.com');
-
-  // Login
-  await page.fill('input[type="email"]', 'YOUR_TEST_EMAIL');
-  await page.fill('input[type="password"]', 'YOUR_TEST_PASSWORD');
-  await page.click('button:has-text("Sign In")');
-
-  // Wait for sessions
-  await expect(page.locator('text=Sessions')).toBeVisible();
-
-  // Click first session
-  const firstSession = page.locator('[data-testid="session-row"]').first();
-  await firstSession.click();
-
-  // Accept transfer if needed
-  const acceptButton = page.locator('button:has-text("Accept")');
-  if (await acceptButton.isVisible()) {
-    await acceptButton.click();
-  }
-
-  // Type reply
-  const messageBox = page.locator('textarea');
-  await messageBox.fill('Test reply from Playwright');
-
-  await page.click('button:has-text("Send")');
-
-  // Verify message appears
-  await expect(page.locator('text=Test reply from Playwright')).toBeVisible();
-});
-🧪 TEST 3 — Public Chat → Human Request
-📄 tests/public-chat.spec.js
-import { test, expect } from '@playwright/test';
-
-test('Visitor can request human from public chat', async ({ page }) => {
-  await page.goto('https://worksidesoftware.com');
-
-  // Open chat widget
-  const chatButton = page.locator('[data-testid="chat-open-button"]');
-  await chatButton.click();
-
-  // Send initial message
-  const chatInput = page.locator('textarea');
-  await chatInput.fill('I want to speak to someone');
-  await page.keyboard.press('Enter');
-
-  // Expect prompt for name/email
-  await expect(page.locator('text=Before we connect you')).toBeVisible();
-
-  // Fill contact info
-  await page.fill('input[name="name"]', 'Test User');
-  await page.fill('input[name="email"]', 'test@example.com');
-
-  // Request human
-  await page.click('button:has-text("Talk to a person")');
-
-  // Confirm message
-  await expect(page.locator('text=notifying our team')).toBeVisible();
-});
-⚠️ IMPORTANT (Adjust these selectors)
-
-You will likely need to update:
-
-[data-testid="session-row"]
-[data-testid="chat-open-button"]
-textarea
-
-👉 Add data-testid attributes in your UI for stability.
-
-🔥 Pro Tip (DO THIS)
-
-In your React code:
-
-<div data-testid="session-row">
-<button data-testid="chat-open-button">
-
-👉 This makes tests bulletproof
-
-🧪 Run tests
-npm run test:e2e
+  1 failed
+    tests\public-chat.spec.js:3:1 › Visitor can request human from public chat ──────────────────

@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { hasSupportCredentials, supportCredentials } from './supportCredentials.js';
+import { hasSupportCredentials, supportCredentials, supportConsoleUrl } from './supportCredentials.js';
 
 test.skip(!hasSupportCredentials(), 'Set PLAYWRIGHT_SUPPORT_TEST_EMAIL and PLAYWRIGHT_SUPPORT_TEST_PASSWORD to run live support tests.');
 
 test('Support Console loads sessions after login', async ({ page }) => {
   const { email, password } = supportCredentials();
 
-  await page.goto('https://support.worksidesoftware.com');
+  await page.goto(supportConsoleUrl());
 
   // Fill login form
   await page.fill('input[type="email"]', email);
