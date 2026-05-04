@@ -213,6 +213,49 @@ function normalizeAssignmentHistory(value) {
   return value.map((item) => normalizeAssignmentEntry(item)).filter((item) => item.assignedToUserId || item.assignedAt);
 }
 
+function normalizeNotificationTimelineEntry(entry) {
+  const item = entry && typeof entry === "object" ? entry : {};
+  const attemptedAt = pickFirst(item.attemptedAt, item.at, item.createdAt, item.timestamp, item.sentAt, item.failedAt);
+  const channel = pickFirst(item.channel, item.type, item.kind);
+  const status = pickFirst(item.status, item.outcome, item.result);
+  if (!channel && !status && !attemptedAt) return null;
+
+  return {
+    id: String(pickFirst(item.id, item._id, `${channel ?? "notification"}-${attemptedAt ?? "unknown"}`)),
+    channel: channel ? String(channel) : "",
+    recipient: String(pickFirst(item.recipient, item.to, item.target, item.destination, "")),
+    status: status ? String(status) : "",
+    provider: String(pickFirst(item.provider, "")),
+    messageId: String(pickFirst(item.messageId, item.providerMessageId, item.sid, "")),
+    attemptedAt: attemptedAt ? String(attemptedAt) : "",
+    reason: String(pickFirst(item.reason, item.skippedReason, item.muteReason, "")),
+    error: String(pickFirst(item.error, item.errorMessage, item.failureReason, "")),
+  };
+}
+
+function normalizeNotificationTimeline(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => normalizeNotificationTimelineEntry(item)).filter(Boolean);
+}
+
+function normalizeNotificationStatus(value) {
+  const item = value && typeof value === "object" ? value : {};
+  const channelResults = normalizeNotificationTimeline(pickFirst(item.channelResults, item.channels, item.results, []));
+  const attempted = pickFirst(item.attempted, item.notificationAttempted, channelResults.length > 0);
+  const muted = pickFirst(item.muted, item.adminMuted, false);
+  const status = pickFirst(item.status, item.outcome, item.result);
+  return {
+    attempted: isTruthyFlag(attempted),
+    muted: isTruthyFlag(muted),
+    status: status ? String(status) : "",
+    channel: String(pickFirst(item.channel, item.primaryChannel, "")),
+    recipient: String(pickFirst(item.recipient, item.to, "")),
+    reason: String(pickFirst(item.reason, item.skippedReason, item.muteReason, "")),
+    updatedAt: String(pickFirst(item.updatedAt, item.attemptedAt, item.at, "")),
+    channelResults,
+  };
+}
+
 function normalizeTranscriptReceipt(value) {
   const item = value && typeof value === "object" ? value : {};
   const sentAt = pickFirst(item.sentAt, item.createdAt, item.at, item.timestamp);
@@ -554,13 +597,27 @@ function normalizeSession(rawSession) {
     session.routingStatus,
     session.routing_status,
     session.support?.routingStatus,
+    session.support?.routing?.status,
     session.routing?.status,
   );
   const availabilityOutcome = pickFirst(
     session.availabilityOutcome,
     session.availability_outcome,
     session.support?.availabilityOutcome,
+    session.support?.routing?.availabilityOutcome,
     session.routing?.availabilityOutcome,
+  );
+  const notificationStatus = normalizeNotificationStatus(
+    pickFirst(session.notificationStatus, session.support?.routing?.notificationStatus, session.support?.notificationStatus),
+  );
+  const notificationTimeline = normalizeNotificationTimeline(
+    pickFirst(
+      session.notificationTimeline,
+      session.support?.notificationTimeline,
+      session.support?.routing?.notificationTimeline,
+      notificationStatus.channelResults,
+      [],
+    ),
   );
   const assignmentHistory = normalizeAssignmentHistory(
     pickFirst(session.assignmentHistory, session.support?.assignmentHistory, session.assignment?.history, []),
@@ -612,6 +669,8 @@ function normalizeSession(rawSession) {
     intent: intent ? String(intent) : "",
     routingStatus: routingStatus ? String(routingStatus) : "",
     availabilityOutcome: availabilityOutcome ? String(availabilityOutcome) : "",
+    notificationStatus,
+    notificationTimeline,
     assignmentHistory,
     latestAssignment: latestAssignment ?? null,
     lastTranscriptSentAt: transcriptReceipt?.sentAt ?? "",
@@ -1036,10 +1095,17 @@ function normalizeAvailability(payload) {
   const item = pickFirst(payload?.availability, payload?.data?.availability, payload?.data, payload, {});
   return {
     status: String(pickFirst(item.status, "offline")),
+    effectiveStatus: String(pickFirst(item.effectiveStatus, item.status, "offline")),
     manualOverride: Boolean(pickFirst(item.manualOverride, false)),
     quietUntil: String(pickFirst(item.quietUntil, "")),
     lastSeenAt: String(pickFirst(item.lastSeenAt, "")),
     updatedAt: String(pickFirst(item.updatedAt, "")),
+    heartbeatAgeSeconds:
+      item.heartbeatAgeSeconds === null || item.heartbeatAgeSeconds === undefined
+        ? null
+        : Number(item.heartbeatAgeSeconds),
+    assignable: item.assignable !== false,
+    blockedReason: String(pickFirst(item.blockedReason, "")),
   };
 }
 
@@ -1483,3 +1549,13 @@ export async function assignSupportSession({
 
   return ensureDetail(normalizeSessionAndMessages(payload), sessionId, tenantId, product);
 }
+
+export const __testing = {
+  normalizeAvailability,
+  normalizeNotificationStatus,
+  normalizeNotificationTimeline,
+  normalizeSession,
+  normalizeSessionAndMessages,
+  normalizeSessionList,
+  normalizeStatus,
+};

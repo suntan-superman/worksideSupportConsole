@@ -271,12 +271,18 @@ const state = {
   supportUsers: [],
   availability: {
     status: "offline",
+    effectiveStatus: "offline",
     manualOverride: false,
     quietUntil: "",
     lastSeenAt: "",
     updatedAt: "",
+    heartbeatAgeSeconds: null,
+    assignable: false,
+    blockedReason: "",
   },
   availabilityBusy: false,
+  availabilityHeartbeatError: "",
+  lastAvailabilityHeartbeatAt: "",
   adminNotificationsMuted: false,
   agentName: localStorage.getItem(AGENT_STORAGE_KEY) ?? "",
   selectedSessionId: localStorage.getItem(SELECTED_SESSION_KEY) ?? "",
@@ -515,6 +521,29 @@ function stopRealtimeAndPolling() {
   state.realtimeStatus = "offline";
 }
 
+function clearAvailabilityHeartbeatInterval() {
+  if (!availabilityHeartbeatInterval) return;
+  clearInterval(availabilityHeartbeatInterval);
+  availabilityHeartbeatInterval = null;
+}
+
+function isAvailabilityHeartbeatEnabled() {
+  return state.isAuthenticated && state.availability.status === "available" && !isViewerRole();
+}
+
+function syncAvailabilityHeartbeatLoop() {
+  if (!isAvailabilityHeartbeatEnabled()) {
+    clearAvailabilityHeartbeatInterval();
+    return;
+  }
+
+  if (availabilityHeartbeatInterval) return;
+  availabilityHeartbeatInterval = setInterval(() => {
+    runAvailabilityHeartbeat();
+  }, AVAILABILITY_HEARTBEAT_MS);
+  runAvailabilityHeartbeat();
+}
+
 async function runPollingCycle() {
   if (!state.isAuthenticated || pollingInFlight) return;
   if (state.busyAction) return;
@@ -539,14 +568,19 @@ async function runPollingCycle() {
 }
 
 async function runAvailabilityHeartbeat() {
-  if (!state.isAuthenticated || state.availability.status !== "available") return;
+  if (!isAvailabilityHeartbeatEnabled()) return;
   try {
     const result = await sendAvailabilityHeartbeat();
     if (result.lastSeenAt) {
       state.availability.lastSeenAt = result.lastSeenAt;
+      state.availability.effectiveStatus = "available";
+      state.availability.assignable = true;
+      state.availability.blockedReason = "";
     }
+    state.lastAvailabilityHeartbeatAt = new Date().toISOString();
+    state.availabilityHeartbeatError = "";
   } catch {
-    // Heartbeat is best-effort; the next polling cycle or manual status change can recover.
+    state.availabilityHeartbeatError = "Heartbeat failed. Routing may pause if freshness expires.";
   }
 }
 
@@ -557,10 +591,7 @@ function startRealtimeAndPolling() {
   pollingInterval = setInterval(() => {
     runPollingCycle();
   }, POLLING_INTERVAL_MS);
-  availabilityHeartbeatInterval = setInterval(() => {
-    runAvailabilityHeartbeat();
-  }, AVAILABILITY_HEARTBEAT_MS);
-  runAvailabilityHeartbeat();
+  syncAvailabilityHeartbeatLoop();
 }
 
 function escapeHtml(value) {
@@ -648,7 +679,48 @@ function availabilityLabel(status = state.availability.status) {
 }
 
 function availabilityClass(status = state.availability.status) {
-  return `availability-${String(status || "offline").replace(/_/g, "-")}`;
+  const effective = state.availability.effectiveStatus || status || "offline";
+  return `availability-${String(effective).replace(/_/g, "-")}`;
+}
+
+function formatTimeOnly(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function availabilityStatusText() {
+  const availability = state.availability || {};
+  const status = availability.status || "offline";
+  const effective = availability.effectiveStatus || status;
+  const quietTime = formatTimeOnly(availability.quietUntil);
+
+  if (effective === "quiet" || (status === "do_not_disturb" && quietTime)) {
+    return quietTime ? `Quiet until ${quietTime}` : "Quiet - routing paused";
+  }
+  if (status === "available" && effective === "stale") {
+    return "Available but stale - routing paused";
+  }
+  if (status === "available" && effective === "available") {
+    return "Available - heartbeat fresh";
+  }
+  if (status === "busy") return "Busy - not assignable";
+  if (status === "away") return "Away - not assignable";
+  if (status === "do_not_disturb") return "Quiet - routing paused";
+  return "Offline - not assignable";
+}
+
+function availabilityDetailText() {
+  const parts = [];
+  const lastSeen = state.availability.lastSeenAt ? `last seen ${formatTimestamp(state.availability.lastSeenAt)}` : "";
+  if (lastSeen) parts.push(lastSeen);
+  if (state.availability.blockedReason) parts.push(state.availability.blockedReason.replace(/_/g, " "));
+  if (state.availabilityHeartbeatError) parts.push(state.availabilityHeartbeatError);
+  return parts.join(" | ");
 }
 
 function buildScopeKey({ tenantId, product } = {}) {
@@ -2531,6 +2603,8 @@ async function loadMyAvailability({ silent = false } = {}) {
   if (!state.isAuthenticated || isViewerRole()) return;
   try {
     state.availability = await getMyAvailability();
+    state.availabilityHeartbeatError = "";
+    syncAvailabilityHeartbeatLoop();
   } catch (error) {
     if (!silent) {
       await handleChatApiError("Load availability", error);
@@ -3212,10 +3286,9 @@ async function handleAvailabilityChange(status) {
       quietUntil: status === "do_not_disturb" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
     });
     state.availability = availability;
+    await loadMyAvailability({ silent: true });
     setBanner("success", `Availability set to ${availabilityLabel(availability.status)}.`);
-    if (availability.status === "available") {
-      await runAvailabilityHeartbeat();
-    }
+    syncAvailabilityHeartbeatLoop();
   } catch (error) {
     await handleChatApiError("Update availability", error);
     await loadMyAvailability({ silent: true });
@@ -3756,6 +3829,69 @@ function renderSessionList(sessions) {
     .join("");
 }
 
+function supportUserLabelFromId(value) {
+  const selected = String(value ?? "").trim();
+  if (!selected) return "All";
+  if (selected === "unassigned") return "Unassigned";
+  const normalized = selected.toLowerCase();
+  const user = state.supportUsers.find((item) => {
+    return (
+      String(item.id ?? "").toLowerCase() === normalized ||
+      String(item.email ?? "").toLowerCase() === normalized ||
+      String(item.name ?? "").toLowerCase() === normalized
+    );
+  });
+  return user?.name || user?.email || selected;
+}
+
+function tenantLabelFromId(value) {
+  const selected = String(value ?? "").trim();
+  if (!selected) return "All";
+  return state.tenantOptions.find((item) => item.id === selected)?.name || selected;
+}
+
+function productFilterLabel(value) {
+  const selected = String(value ?? "").trim();
+  if (!selected) return "All";
+  return state.productOptions.find((item) => item.id === selected)?.label || productLabelFromKey(selected);
+}
+
+function hasActiveSupportFilters() {
+  const filters = state.supportFilters;
+  return Boolean(
+    filters.product ||
+      filters.tenantId ||
+      filters.status ||
+      filters.urgency ||
+      filters.assignedTo ||
+      state.search.trim(),
+  );
+}
+
+function renderActiveFilterSummary() {
+  const filters = state.supportFilters;
+  const parts = [
+    `Product = ${productFilterLabel(filters.product)}`,
+    `Tenant = ${tenantLabelFromId(filters.tenantId)}`,
+    `Status = ${filters.status ? statusLabel(filters.status) : "All"}`,
+    `Urgency = ${filters.urgency || "All"}`,
+    `Assigned = ${supportUserLabelFromId(filters.assignedTo)}`,
+  ];
+  if (state.search.trim()) {
+    parts.push(`Search = ${state.search.trim()}`);
+  }
+  return `
+    <div class="filter-summary">
+      <span>Filters: ${escapeHtml(parts.join(" | "))}</span>
+      ${
+        hasActiveSupportFilters()
+          ? `<button id="clear-filters-button" class="button button-compact button-quiet" type="button">Clear filters</button>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function renderMessages(messages) {
   if (!messages.length) {
     return `<div class="empty-state">No conversation messages yet.</div>`;
@@ -3899,6 +4035,73 @@ function renderSessionOperationsSummary(session) {
         <strong>${escapeHtml(transcriptLabel)}</strong>
         <p>${escapeHtml(transcriptMeta)}</p>
       </article>
+    </section>
+  `;
+}
+
+function notificationStatusLabel(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "Unknown";
+  return raw.replace(/_/g, " ");
+}
+
+function renderRoutingNotificationsPanel(session) {
+  const notificationStatus = session.notificationStatus || {};
+  const timeline = Array.isArray(session.notificationTimeline) ? session.notificationTimeline : [];
+  const assignedTo = session.assignedToName || session.assignedToEmail || session.assignedToUserId || "Unassigned";
+  const department = session.departmentLabel || session.departmentId || "Unassigned";
+  const routing = session.routingStatus ? session.routingStatus.replace(/_/g, " ") : "unassigned";
+  const availability = session.availabilityOutcome ? session.availabilityOutcome.replace(/_/g, " ") : "No outcome recorded";
+  const attempted = notificationStatus.attempted ? "Attempted" : "Not attempted";
+  const muted = notificationStatus.muted ? "Muted" : "Not muted";
+
+  return `
+    <section class="routing-notifications" aria-label="Routing and notifications">
+      <header>
+        <div>
+          <h3>Routing / Notifications</h3>
+          <p>Backend routing, assignment, and human handoff notification results.</p>
+        </div>
+      </header>
+      <div class="routing-notifications-grid">
+        <article>
+          <span>Routing status</span>
+          <strong>${escapeHtml(routing)}</strong>
+          <p>${escapeHtml(availability)}</p>
+        </article>
+        <article>
+          <span>Assigned user</span>
+          <strong>${escapeHtml(assignedTo)}</strong>
+          <p>${escapeHtml(department)}</p>
+        </article>
+        <article>
+          <span>Notification</span>
+          <strong>${escapeHtml(attempted)}</strong>
+          <p>${escapeHtml(notificationStatus.reason || muted)}</p>
+        </article>
+      </div>
+      <div class="notification-timeline">
+        ${
+          timeline.length
+            ? timeline
+                .map((item) => {
+                  const label = [item.channel || "notification", item.recipient ? `to ${item.recipient}` : ""]
+                    .filter(Boolean)
+                    .join(" ");
+                  const status = notificationStatusLabel(item.status);
+                  const detail = item.reason || item.error || item.provider || item.messageId || "No additional detail";
+                  return `
+                    <article>
+                      <strong>${escapeHtml(label)}</strong>
+                      <span>${escapeHtml(status)}${item.attemptedAt ? ` | ${escapeHtml(formatTimestamp(item.attemptedAt))}` : ""}</span>
+                      <p>${escapeHtml(detail)}</p>
+                    </article>
+                  `;
+                })
+                .join("")
+            : `<p class="notification-empty">No notification attempts have been recorded for this session.</p>`
+        }
+      </div>
     </section>
   `;
 }
@@ -4328,6 +4531,8 @@ function renderDetailPanel() {
 
       ${renderSessionOperationsSummary(session)}
 
+      ${renderRoutingNotificationsPanel(session)}
+
       <section class="closure-guide" aria-label="Closure options">
         <div class="closure-guide-item">
           <span>No details, no follow-up</span>
@@ -4671,6 +4876,59 @@ function renderAdminPanel() {
   const inactiveDepartmentCount = state.adminDepartments.length - activeDepartments;
   const usersTabActive = state.adminActiveTab !== "departments";
   const departmentsTabActive = state.adminActiveTab === "departments";
+  const coverageByDepartment = visibleDepartments.map((department) => {
+    const users = state.adminUsers.filter((user) => user.active && user.departments.includes(department.id));
+    const counts = {
+      available: 0,
+      stale: 0,
+      quiet: 0,
+      offline: 0,
+      away: 0,
+      busy: 0,
+    };
+    for (const user of users) {
+      const effective = user.availability?.effectiveStatus || user.availability?.status || "offline";
+      if (effective === "available") counts.available += 1;
+      else if (effective === "stale") counts.stale += 1;
+      else if (effective === "quiet" || user.availability?.status === "do_not_disturb") counts.quiet += 1;
+      else if (effective === "away") counts.away += 1;
+      else if (effective === "busy") counts.busy += 1;
+      else counts.offline += 1;
+    }
+    return { department, users, counts };
+  });
+  const coveragePanel = `
+    <section class="admin-coverage-panel">
+      <div class="admin-section-header">
+        <h4>Availability Coverage</h4>
+      </div>
+      <div class="coverage-grid">
+        ${
+          coverageByDepartment.length
+            ? coverageByDepartment
+                .map(({ department, users, counts }) => {
+                  const warning = department.active !== false && counts.available === 0;
+                  return `
+                    <article class="${warning ? "has-warning" : ""}">
+                      <strong>${escapeHtml(department.label || department.id)}</strong>
+                      <span>${escapeHtml(String(counts.available))} available</span>
+                      <p>
+                        ${escapeHtml(String(counts.stale))} stale |
+                        ${escapeHtml(String(counts.quiet))} quiet |
+                        ${escapeHtml(String(counts.away + counts.busy))} away/busy |
+                        ${escapeHtml(String(counts.offline))} offline
+                      </p>
+                      ${warning ? `<p>No available agents in this department.</p>` : ""}
+                      <small>${escapeHtml(String(users.length))} active user${users.length === 1 ? "" : "s"}</small>
+                    </article>
+                  `;
+                })
+                .join("")
+            : `<p>No departments loaded.</p>`
+        }
+      </div>
+    </section>
+  `;
   const supportUsersTable = `
     <section>
       <h4>Support Users</h4>
@@ -4818,6 +5076,7 @@ function renderAdminPanel() {
           <p>Current support staffing mix</p>
         </article>
       </div>
+      ${coveragePanel}
       <div class="admin-tabs" role="tablist" aria-label="Support admin sections">
         <button
           id="admin-tab-users"
@@ -5080,7 +5339,7 @@ function render() {
           <span class="queue-pill">Queue ${transferQueueCount}</span>
           <span class="queue-pill">${escapeHtml(roleBadgeLabel())}</span>
           <span class="queue-pill availability-pill ${escapeHtml(availabilityClass())}">${escapeHtml(
-            availabilityLabel(),
+            availabilityStatusText(),
           )}</span>
         </div>
         <form id="settings-form" class="settings-form">
@@ -5171,6 +5430,7 @@ function render() {
           }
           <button id="logout-button" class="button" type="button">Logout</button>
           <button id="refresh-button" class="button" type="button">Refresh</button>
+          <div class="availability-hint">${escapeHtml(availabilityDetailText() || "Heartbeat runs while you are available.")}</div>
         </form>
       </header>
 
@@ -5200,6 +5460,7 @@ function render() {
             <h2>Sessions</h2>
             <span>${state.lastUpdatedAt ? `Updated ${formatTimestamp(state.lastUpdatedAt)}` : "Not loaded yet"}</span>
           </div>
+          ${renderActiveFilterSummary()}
           <div class="search-wrap">
             <input id="search-input" placeholder="Search by lead, preview, or session id" value="${escapeHtml(
               state.search,
@@ -5421,6 +5682,23 @@ function bindEvents() {
     searchInput.addEventListener("input", (event) => {
       state.search = event.target.value;
       render();
+    });
+  }
+
+  const clearFiltersButton = document.querySelector("#clear-filters-button");
+  if (clearFiltersButton) {
+    clearFiltersButton.addEventListener("click", async () => {
+      state.supportFilters = normalizeFilterState({
+        sortBy: state.supportFilters.sortBy,
+        sortDirection: state.supportFilters.sortDirection,
+      });
+      state.search = "";
+      state.accessDenied = false;
+      persistFilters();
+      await loadFilterOptions({ silent: true });
+      await loadSupportUserOptions({ silent: true });
+      await loadSessions();
+      await loadSelectedSession();
     });
   }
 
