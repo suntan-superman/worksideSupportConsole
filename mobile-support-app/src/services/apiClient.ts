@@ -51,11 +51,13 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
       `Request failed (${response.status})`;
 
     const error = new Error(errorMessage) as Error & {
+      status?: number;
       code?: string;
       requiredAction?: string;
       details?: unknown;
     };
 
+    error.status = response.status;
     error.code = payload?.error?.code || payload?.code;
     error.requiredAction = payload?.error?.requiredAction || payload?.requiredAction;
     error.details = payload?.details;
@@ -63,4 +65,13 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   }
 
   return payload as T;
+}
+
+export function isUnauthorizedError(error: unknown) {
+  const err = error as { status?: number; message?: string; code?: string } | null;
+  return (
+    err?.status === 401 ||
+    err?.code === "unauthorized" ||
+    String(err?.message || "").toLowerCase() === "unauthorized"
+  );
 }

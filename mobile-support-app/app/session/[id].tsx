@@ -5,6 +5,7 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { useAuth } from "@/context/AuthContext";
 import { usePreferences } from "@/context/PreferencesContext";
 import { usePolling } from "@/hooks/usePolling";
+import { isUnauthorizedError } from "@/services/apiClient";
 import {
   closeSupportSession,
   getSupportSessionDetail,
@@ -19,7 +20,7 @@ import {
 
 export default function SessionScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { signOut, user } = useAuth();
   const { darkMode } = usePreferences();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [session, setSession] = useState<SupportSession | null>(null);
@@ -30,9 +31,17 @@ export default function SessionScreen() {
 
   async function loadDetail() {
     if (!id) return;
-    const detail = await getSupportSessionDetail(id);
-    setSession(detail.session);
-    setMessages(detail.messages || []);
+    try {
+      const detail = await getSupportSessionDetail(id);
+      setSession(detail.session);
+      setMessages(detail.messages || []);
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        await signOut();
+        router.replace("/login");
+      }
+      throw error;
+    }
   }
 
   useEffect(() => {

@@ -84,6 +84,8 @@ export type SupportSession = {
   inquiryCaptured?: boolean;
   transferRequested?: boolean;
   lastMessagePreview?: string;
+  createdAt?: string;
+  startedAt?: string;
   updatedAt?: string;
   lastInteractionAt?: string;
 };
@@ -131,11 +133,11 @@ function normalizeSession(raw: AnyRecord): SupportSession {
     leadCaptured: Boolean(pickFirst(raw.leadCaptured, raw.lead?.captured, raw.leadName || raw.leadEmail, false)),
     inquiryCaptured: Boolean(pickFirst(raw.inquiryCaptured, raw.inquiry?.captured, raw.inquiry?.messageSummary, false)),
     transferRequested: status === "escalated",
-    lastMessagePreview:
-      meaningfulText(pickFirst(raw.lastMessagePreview, raw.preview, raw.lastMessage, raw.lastMessage?.text, raw.lastMessage?.message)) ||
-      "No preview available.",
+    lastMessagePreview: meaningfulText(pickFirst(raw.lastMessagePreview, raw.preview, raw.lastMessage, raw.lastMessage?.text, raw.lastMessage?.message)),
+    createdAt: meaningfulText(pickFirst(raw.createdAt, raw.initialDate, raw.startedAt, "")),
+    startedAt: meaningfulText(pickFirst(raw.startedAt, raw.initialDate, raw.createdAt, "")),
     updatedAt: meaningfulText(pickFirst(raw.updatedAt, raw.lastUpdatedAt, raw.lastInteractionAt, "")),
-    lastInteractionAt: meaningfulText(pickFirst(raw.lastInteractionAt, raw.updatedAt, ""))
+    lastInteractionAt: meaningfulText(pickFirst(raw.lastInteractionAt, raw.lastMessageAt, raw.updatedAt, ""))
   };
 }
 

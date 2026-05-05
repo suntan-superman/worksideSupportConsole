@@ -1,5 +1,7 @@
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useState } from "react";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { useAuth } from "@/context/AuthContext";
 import { usePreferences } from "@/context/PreferencesContext";
 
@@ -7,32 +9,34 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { authEmail, deleteAccount, signOut, user } = useAuth();
   const { darkMode, notificationsEnabled, setDarkMode, setNotificationsEnabled } = usePreferences();
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const email = user?.email || authEmail || "Unknown";
+  const displayName = user?.displayName || (email !== "Unknown" ? email.split("@")[0] : "Support user");
 
   async function handleSignOut() {
-    await signOut();
-    router.replace("/login");
+    setBusy(true);
+    try {
+      await signOut();
+      setConfirmSignOut(false);
+      router.replace("/login");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function confirmDeleteAccount() {
-    Alert.alert(
-      "Delete account?",
-      "This removes the signed-in Firebase account from this device flow. If the account is managed by Workside, backend access may also need to be disabled by an administrator.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteAccount();
-              router.replace("/login");
-            } catch (error: any) {
-              Alert.alert("Unable to delete account", error?.message || "Sign in again and retry.");
-            }
-          }
-        }
-      ]
-    );
+  async function handleDeleteAccount() {
+    setBusy(true);
+    try {
+      await deleteAccount();
+      setConfirmDelete(false);
+      router.replace("/login");
+    } catch (error: any) {
+      Alert.alert("Unable to delete account", error?.message || "Sign in again and retry.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -45,8 +49,10 @@ export default function SettingsScreen() {
 
       <View style={[styles.card, darkMode && styles.cardDark]}>
         <Text style={[styles.sectionTitle, darkMode && styles.textDark]}>Current user</Text>
+        <Text style={[styles.label, darkMode && styles.mutedDark]}>Name</Text>
+        <Text style={[styles.value, darkMode && styles.textDark]}>{displayName}</Text>
         <Text style={[styles.label, darkMode && styles.mutedDark]}>Email</Text>
-        <Text style={[styles.value, darkMode && styles.textDark]}>{user?.email || authEmail || "Unknown"}</Text>
+        <Text style={[styles.value, darkMode && styles.textDark]}>{email}</Text>
         <Text style={[styles.label, darkMode && styles.mutedDark]}>User ID</Text>
         <Text style={[styles.value, darkMode && styles.textDark]}>{user?.uid || "Token sign-in"}</Text>
       </View>
@@ -71,13 +77,32 @@ export default function SettingsScreen() {
 
       <View style={[styles.card, darkMode && styles.cardDark]}>
         <Text style={[styles.sectionTitle, darkMode && styles.textDark]}>Account</Text>
-        <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+        <Pressable style={styles.signOutButton} onPress={() => setConfirmSignOut(true)}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
-        <Pressable style={styles.deleteButton} onPress={confirmDeleteAccount}>
+        <Pressable style={styles.deleteButton} onPress={() => setConfirmDelete(true)}>
           <Text style={styles.deleteText}>Delete account</Text>
         </Pressable>
       </View>
+      <ConfirmSheet
+        visible={confirmSignOut}
+        title="Sign out?"
+        message="You will stop receiving support queue updates on this device until you sign back in."
+        confirmLabel="Sign out"
+        busy={busy}
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={handleSignOut}
+      />
+      <ConfirmSheet
+        visible={confirmDelete}
+        title="Delete account?"
+        message="This cannot be undone. Your account will be removed from Firebase for this sign-in flow, and an administrator may still need to disable any backend support access."
+        confirmLabel="Delete account"
+        tone="danger"
+        busy={busy}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={handleDeleteAccount}
+      />
     </ScrollView>
   );
 }

@@ -8,6 +8,9 @@ export function SessionCard({ session, onPress }: { session: SupportSession; onP
   const humanActive = isHumanActive(session);
   const assigned = session.ownerName || session.assignedTo || "Unassigned";
   const name = session.leadName || session.visitorName || session.leadEmail || "Visitor";
+  const sessionDate = formatDateTime(session.startedAt || session.createdAt || session.updatedAt || session.lastInteractionAt);
+  const lastInteractionTime = formatTime(session.lastInteractionAt || session.updatedAt || session.startedAt || session.createdAt);
+  const preview = cleanPreview(session.lastMessagePreview);
 
   return (
     <Pressable style={[styles.card, darkMode && styles.cardDark, waiting && styles.waitingCard]} onPress={onPress}>
@@ -21,6 +24,7 @@ export function SessionCard({ session, onPress }: { session: SupportSession; onP
         {productLabel(session.product)}
         {session.urgency ? ` · ${formatStatus(session.urgency)} urgency` : ""}
       </Text>
+      {sessionDate ? <Text style={[styles.date, darkMode && styles.mutedDark]}>{sessionDate}</Text> : null}
       <View style={styles.detailRow}>
         <Text style={[styles.assignment, darkMode && styles.textDark]} numberOfLines={1}>{assigned}</Text>
         {session.leadEmail ? <Text style={[styles.email, darkMode && styles.mutedDark]} numberOfLines={1}>{session.leadEmail}</Text> : null}
@@ -30,9 +34,35 @@ export function SessionCard({ session, onPress }: { session: SupportSession; onP
           {[session.routingStatus, session.availabilityOutcome].filter(Boolean).map(formatStatus).join(" · ")}
         </Text>
       ) : null}
-      <Text style={[styles.preview, darkMode && styles.previewDark]} numberOfLines={2}>{session.lastMessagePreview || "No preview available."}</Text>
+      <View style={styles.footerRow}>
+        {preview ? <Text style={[styles.preview, darkMode && styles.previewDark]} numberOfLines={2}>{preview}</Text> : <View style={styles.previewSpacer} />}
+        {lastInteractionTime ? <Text style={[styles.time, darkMode && styles.mutedDark]}>{lastInteractionTime}</Text> : null}
+      </View>
     </Pressable>
   );
+}
+
+function cleanPreview(value?: string) {
+  const preview = String(value || "").trim();
+  return preview && preview !== "No preview available." ? preview : "";
+}
+
+function formatDateTime(value?: string) {
+  const date = parseDate(value);
+  if (!date) return "";
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatTime(value?: string) {
+  const date = parseDate(value);
+  if (!date) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function parseDate(value?: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 const styles = StyleSheet.create({
@@ -47,10 +77,14 @@ const styles = StyleSheet.create({
   waitingStatus: { color: "#b45309" },
   humanStatus: { color: "#0f766e" },
   meta: { color: "#64748b", marginTop: 6, textTransform: "capitalize" },
+  date: { color: "#64748b", marginTop: 3, fontSize: 12, fontWeight: "700" },
   detailRow: { flexDirection: "row", gap: 10, alignItems: "center", marginTop: 6 },
   assignment: { color: "#475569", fontWeight: "800", flexShrink: 0 },
   email: { color: "#64748b", flex: 1, textAlign: "right" },
   routing: { color: "#64748b", marginTop: 6, fontSize: 12 },
-  preview: { color: "#334155", marginTop: 8 },
-  previewDark: { color: "#cbd5e1" }
+  footerRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, marginTop: 8 },
+  preview: { color: "#334155", flex: 1 },
+  previewSpacer: { flex: 1 },
+  previewDark: { color: "#cbd5e1" },
+  time: { color: "#64748b", fontSize: 12, fontWeight: "800" }
 });

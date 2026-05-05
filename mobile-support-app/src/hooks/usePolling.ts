@@ -14,6 +14,8 @@ export function usePolling(callback: () => Promise<void> | void, intervalMs: num
       busyRef.current = true;
       try {
         await callbackRef.current();
+      } catch {
+        // Polling callbacks own their user-facing error behavior.
       } finally {
         busyRef.current = false;
       }

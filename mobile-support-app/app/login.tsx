@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Feather } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -16,6 +17,7 @@ export default function LoginScreen() {
   const [otpCode, setOtpCode] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -94,7 +96,23 @@ export default function LoginScreen() {
             <TextInput style={styles.input} placeholder="6-digit code" keyboardType="number-pad" value={otpCode} onChangeText={setOtpCode} />
           </>
         ) : (
-          <TextInput style={styles.input} placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Password"
+              secureTextEntry={!passwordVisible}
+              value={password}
+              onChangeText={setPassword}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+              style={styles.eyeButton}
+              onPress={() => setPasswordVisible((value) => !value)}
+            >
+              <Feather name={passwordVisible ? "eye-off" : "eye"} size={20} color="#475569" />
+            </Pressable>
+          </View>
         )}
 
         <Pressable style={styles.checkboxRow} onPress={() => setRememberMe((value) => !value)}>
@@ -125,6 +143,9 @@ const styles = StyleSheet.create({
   tabText: { color: "#64748b", fontWeight: "800" },
   activeTabText: { color: "#0f172a" },
   input: { borderWidth: 1, borderColor: "#d0d5dd", borderRadius: 14, padding: 14 },
+  passwordRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#d0d5dd", borderRadius: 14 },
+  passwordInput: { flex: 1, padding: 14 },
+  eyeButton: { padding: 14 },
   secondaryButton: { borderWidth: 1, borderColor: "#bfdbfe", backgroundColor: "#eff6ff", borderRadius: 14, padding: 14, alignItems: "center" },
   secondaryButtonText: { color: "#1d4ed8", fontWeight: "800" },
   checkboxRow: { flexDirection: "row", alignItems: "center", gap: 10 },

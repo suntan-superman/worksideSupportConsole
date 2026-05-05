@@ -2,20 +2,25 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initializeApp } from "firebase/app";
 import {
   deleteUser,
-  getAuth,
+  initializeAuth,
   onAuthStateChanged,
   signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   User
 } from "firebase/auth";
+import * as firebaseAuth from "firebase/auth";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { firebaseConfig } from "@/services/config";
 import { setAuthTokenGetter } from "@/services/apiClient";
 import { sendLoginOtp, verifyLoginOtp } from "@/services/authApi";
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+const getReactNativePersistence = (firebaseAuth as any).getReactNativePersistence;
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence ? getReactNativePersistence(AsyncStorage) : undefined
+});
+const REMEMBER_EMAIL_KEY = "support_mobile_remember_email";
 
 type AuthContextValue = {
   user: User | null;
@@ -44,12 +49,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     let unsubscribed = false;
-    AsyncStorage.multiGet(["support_auth_token", "support_user_email"]).then((items) => {
+    AsyncStorage.multiGet(["support_auth_token", "support_user_email", REMEMBER_EMAIL_KEY]).then((items) => {
       if (unsubscribed) return;
       const storedToken = items.find(([key]) => key === "support_auth_token")?.[1] || "";
       const storedEmail = items.find(([key]) => key === "support_user_email")?.[1] || "";
+      const rememberedEmail = items.find(([key]) => key === REMEMBER_EMAIL_KEY)?.[1] || "";
       if (storedToken) setAuthToken(storedToken);
-      if (storedEmail) setAuthEmail(storedEmail);
+      if (storedEmail || rememberedEmail) {
+        const fallbackEmail = storedEmail || rememberedEmail;
+        setAuthEmail(fallbackEmail);
+        if (!storedEmail) {
+          AsyncStorage.setItem("support_user_email", fallbackEmail).catch(() => {});
+        }
+      }
       setLoading(false);
     });
 
@@ -57,12 +69,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(nextUser);
       if (nextUser) {
         const token = await nextUser.getIdToken();
+        const nextEmail = nextUser.email || "";
         setAuthToken(token);
-        setAuthEmail(nextUser.email || "");
-        await AsyncStorage.multiSet([
-          ["support_auth_token", token],
-          ["support_user_email", nextUser.email || ""]
-        ]);
+        if (nextEmail) {
+          setAuthEmail(nextEmail);
+          await AsyncStorage.multiSet([
+            ["support_auth_token", token],
+            ["support_user_email", nextEmail]
+          ]);
+        } else {
+          await AsyncStorage.setItem("support_auth_token", token);
+        }
       }
       setLoading(false);
     });

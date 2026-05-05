@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { AvailabilityToggle } from "@/components/AvailabilityToggle";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { SessionCard } from "@/components/SessionCard";
 import { useAuth } from "@/context/AuthContext";
 import { QueueFilter, usePreferences } from "@/context/PreferencesContext";
 import { usePolling } from "@/hooks/usePolling";
+import { isUnauthorizedError } from "@/services/apiClient";
 import { getSupportSessions, isHumanActive, isWaitingForTakeover, SupportSession } from "@/services/supportApi";
 import { notifyTransferWaiting, registerForPushNotificationsAsync } from "@/services/notifications";
 
@@ -25,23 +27,37 @@ export default function DashboardScreen() {
   const [sessions, setSessions] = useState<SupportSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [authExpired, setAuthExpired] = useState(false);
   const knownWaitingIdsRef = useRef<Set<string>>(new Set());
 
   async function loadSessions() {
-    const result = await getSupportSessions({ product: "merxus" });
-    const nextSessions = result.sessions || [];
-    const waiting = nextSessions.filter(isWaitingForTakeover);
-    const knownWaitingIds = knownWaitingIdsRef.current;
-    const newWaiting = waiting.find((session) => !knownWaitingIds.has(session.id));
-    if (notificationsEnabled && knownWaitingIds.size > 0 && newWaiting) {
-      await notifyTransferWaiting({
-        visitorName: newWaiting.leadName || newWaiting.visitorName || "A visitor",
-        product: newWaiting.product || "Merxus AI"
-      }).catch(() => {});
+    try {
+      const result = await getSupportSessions({ product: "merxus" });
+      const nextSessions = result.sessions || [];
+      const waiting = nextSessions.filter(isWaitingForTakeover);
+      const knownWaitingIds = knownWaitingIdsRef.current;
+      const newWaiting = waiting.find((session) => !knownWaitingIds.has(session.id));
+      if (notificationsEnabled && knownWaitingIds.size > 0 && newWaiting) {
+        await notifyTransferWaiting({
+          visitorName: newWaiting.leadName || newWaiting.visitorName || "A visitor",
+          product: newWaiting.product || "Merxus AI"
+        }).catch(() => {});
+      }
+      knownWaitingIdsRef.current = new Set(waiting.map((session) => session.id));
+      setSessions(nextSessions);
+      setAuthExpired(false);
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        setAuthExpired(true);
+        await signOut();
+        router.replace("/login");
+      }
+      throw error;
+    } finally {
+      setLoading(false);
     }
-    knownWaitingIdsRef.current = new Set(waiting.map((session) => session.id));
-    setSessions(nextSessions);
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -79,6 +95,17 @@ export default function DashboardScreen() {
     }
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOut();
+      setConfirmSignOut(false);
+      router.replace("/login");
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <View style={[styles.container, darkMode && styles.containerDark]}>
       <View style={styles.header}>
@@ -90,7 +117,7 @@ export default function DashboardScreen() {
           <Pressable onPress={() => router.push("/settings")}>
             <Text style={styles.signOut}>Settings</Text>
           </Pressable>
-          <Pressable onPress={signOut}>
+          <Pressable onPress={() => setConfirmSignOut(true)}>
             <Text style={styles.signOut}>Sign out</Text>
           </Pressable>
         </View>
@@ -112,6 +139,8 @@ export default function DashboardScreen() {
 
       {loading ? (
         <ActivityIndicator style={{ marginTop: 32 }} />
+      ) : authExpired ? (
+        <Text style={styles.empty}>Your session expired. Please sign in again.</Text>
       ) : (
         <FlatList
           data={visibleSessions}
@@ -123,6 +152,15 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      <ConfirmSheet
+        visible={confirmSignOut}
+        title="Sign out?"
+        message="You will stop receiving support queue updates on this device until you sign back in."
+        confirmLabel="Sign out"
+        busy={signingOut}
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={handleSignOut}
+      />
     </View>
   );
 }
