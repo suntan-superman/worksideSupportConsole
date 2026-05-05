@@ -120,7 +120,13 @@ function normalizeMessageSender(rawValue, fallback = "system") {
     raw === "message.visitor" ||
     raw === "visitor_message" ||
     raw === "customer_message" ||
-    raw === "user_message"
+    raw === "user_message" ||
+    raw === "public_chat_message" ||
+    raw === "public_chat_message_received" ||
+    raw === "visitor_message_received" ||
+    raw === "customer_message_received" ||
+    raw === "receive_visitor_message" ||
+    raw === "chat_message_received"
   ) {
     return "visitor";
   }
@@ -147,7 +153,10 @@ function normalizeMessageSender(rawValue, fallback = "system") {
     raw === "agent_message" ||
     raw === "human_reply" ||
     raw === "support.reply" ||
-    raw === "agent_reply_sent"
+    raw === "agent_reply_sent" ||
+    raw === "send_agent_reply" ||
+    raw === "support_agent_reply" ||
+    raw === "human_reply_sent"
   ) {
     return "agent";
   }

@@ -106,6 +106,35 @@ describe("support chat normalization", () => {
     expect(messages[0]).toMatchObject({ sender: "visitor", body: "Hello" });
   });
 
+  it("maps support action message types to customer and agent bubbles", () => {
+    const { messages } = normalizeSessionAndMessages({
+      session: {
+        id: "s1",
+        tenantId: "tenantA",
+        product: "merxus",
+        supportActions: [
+          {
+            id: "a1",
+            action: "send_agent_reply",
+            message: "How may I help you?",
+            createdAt: "2026-05-04T17:39:00.000Z",
+          },
+          {
+            id: "a2",
+            action: "public_chat_message",
+            message: "How much does Merxus AI cost?",
+            createdAt: "2026-05-04T17:40:00.000Z",
+          },
+        ],
+      },
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ sender: "agent", body: "How may I help you?" }),
+      expect.objectContaining({ sender: "visitor", body: "How much does Merxus AI cost?" }),
+    ]);
+  });
+
   it("normalizes availability effective status from backend routing model", () => {
     expect(
       normalizeAvailability({

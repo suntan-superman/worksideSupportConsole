@@ -51,11 +51,12 @@ describe("session list render helpers", () => {
   it("renders messages and escapes unsafe bodies", () => {
     const html = renderMessages({
       messages: [{ sender: "visitor", body: "<hello>", createdAt: "2026-05-03T18:00:00.000Z" }],
+      visitorLabel: "Ada Lovelace",
       formatTimestamp: () => "May 3, 6:00 PM",
       escapeHtml,
     });
 
-    expect(html).toContain("Visitor");
+    expect(html).toContain("Ada Lovelace");
     expect(html).toContain("&lt;hello&gt;");
     expect(html).toContain("May 3, 6:00 PM");
   });

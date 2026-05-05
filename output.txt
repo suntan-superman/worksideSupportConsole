@@ -1,69 +1,113 @@
-Option 1 — Mock Slack OAuth (BEST)
+Backend Request
+Please ensure live transfer notifications are sent through the backend whenever a public chat session enters the human-waiting/escalated state.
 
-Instead of real Slack login:
+Required behavior:
 
-👉 Simulate the OAuth callback
+When a chat user requests a human, the backend should transition the session into the transfer/escalated state.
 
-🔧 How Slack OAuth works
+At the same time, send SMS notifications to eligible support users.
 
-Normal flow:
+Eligible users should be filtered by:
 
-1. Click "Connect Slack"
-2. Redirect to Slack
-3. User logs in (OTP)
-4. Slack redirects back to your app with:
-   ?code=XYZ
-5. Backend exchanges code → token
-✅ What you do in tests
+tenant/customer access
+product access
+department/routing match
+active support user status
+notification preferences, especially sms !== false
+valid phone/mobile number
+availability rules, if routing requires available agents
+SMS should be sent once per transfer request, not repeatedly from polling.
 
-Skip steps 2–3 entirely
+The SMS should include enough context to act:
 
-🟢 Test flow becomes:
-1. Click "Connect Slack"
-2. Intercept redirect
-3. Inject fake OAuth response
-4. Call your backend callback
-5. Verify integration
-🔥 Implementation (Playwright)
-📄 Update your Slack test
-test('Slack integration (mocked)', async ({ page }) => {
-  await page.goto('https://merxus.ai/dashboard');
+visitor name if known
+product/customer
+urgency if available
+short message/inquiry summary
+link to support console/session if available
+Example SMS:
 
-  await page.click('text=Settings');
-  await page.click('text=Integrations');
+Workside Support: Jerry is waiting for human support in Merxus AI. Topic: pricing question. Open Support Console to accept the transfer.
+Record notification results on the session so the support console can display them.
+The frontend already expects/normalizes fields like:
 
-  // Simulate OAuth callback instead of real login
-  await page.goto(
-    'https://merxus.ai/api/integrations/slack/oauth/callback?code=TEST_CODE'
-  );
+session.notificationStatus
+session.notificationTimeline
+session.support.notificationStatus
+session.support.notificationTimeline
+session.support.routing.notificationStatus
+session.support.routing.notificationTimeline
+Each timeline item should include fields like:
 
-  // Verify connected
-  await expect(
-    page.locator('text=Slack connected')
-  ).toBeVisible();
-});
-🚀 Backend change (IMPORTANT)
-
-Your backend must support test OAuth mode
-
-🔧 In Slack callback handler:
-if (process.env.ALLOW_TEST_OAUTH === 'true') {
-  if (req.query.code === 'TEST_CODE') {
-    // fake Slack response
-    await saveSlackIntegration({
-      teamId: 'T_TEST',
-      teamName: 'Test Workspace',
-      accessToken: 'fake-token'
-    });
-
-    return res.redirect('/dashboard?slack=connected');
-  }
+{
+  "channel": "sms",
+  "recipient": "+16613451154",
+  "status": "sent",
+  "reason": "",
+  "attemptedAt": "2026-05-04T18:00:00.000Z",
+  "provider": "twilio",
+  "messageId": "SMxxxxxxxx"
 }
-.env
-ALLOW_TEST_OAUTH=true
-🧠 What this gives you
-Feature	Result
-Slack UI login	❌ skipped
-OAuth flow	✅ tested
-Backend integration	✅ tested
-Playwright stability	✅ high
+For failures/skips:
+
+{
+  "channel": "sms",
+  "recipient": "+16613451154",
+  "status": "failed",
+  "reason": "twilio_error",
+  "attemptedAt": "2026-05-04T18:00:00.000Z"
+}
+or:
+
+{
+  "channel": "sms",
+  "recipient": "",
+  "status": "skipped",
+  "reason": "missing_phone",
+  "attemptedAt": "2026-05-04T18:00:00.000Z"
+}
+Also expose an aggregate status object:
+{
+  "attempted": true,
+  "sent": true,
+  "channel": "sms",
+  "recipient": "+16613451154",
+  "reason": "sent",
+  "channelResults": [
+    {
+      "channel": "sms",
+      "recipient": "+16613451154",
+      "status": "sent",
+      "attemptedAt": "2026-05-04T18:00:00.000Z"
+    }
+  ]
+}
+The existing support console will render this under “Routing / Notifications.” No new console endpoint is required if these fields are returned by:
+GET /support/sessions
+GET /support/sessions/:sessionId
+Customer Transcript On End Chat
+Separately, the customer-facing “email me a copy” flow is not the same as the support console Send Transcript action.
+
+Please add or confirm a public/customer-safe backend endpoint for the website chat widget, for example:
+
+POST /public/chat/sessions/:sessionId/transcript
+or whatever public chat route naming matches the backend.
+
+Requirements:
+
+Must not require support-user auth.
+Must only send to the captured customer email for that session, or require a verified/same-session email.
+Must use customer-safe defaults:
+include visitor/customer messages
+include human support messages
+exclude internal notes
+exclude system events
+exclude private routing/admin details
+AI messages optional, but default should be customer-safe
+Should reject if session/email does not match.
+Should rate-limit to prevent abuse.
+Should record transcript receipt on the session.
+Once that endpoint exists, the Merxus public chat widget can ask at chat end:
+
+Would you like us to email you a copy of this chat?
+and call that public transcript endpoint if the user confirms.

@@ -72,8 +72,9 @@ export function renderSessionList({
     .join("");
 }
 
-export function renderMessages({ messages = [], formatTimestamp, escapeHtml } = {}) {
+export function renderMessages({ messages = [], visitorLabel = "Visitor", formatTimestamp, escapeHtml } = {}) {
   const safeEscape = typeof escapeHtml === "function" ? escapeHtml : (value) => String(value ?? "");
+  const safeVisitorLabel = String(visitorLabel ?? "").trim() || "Visitor";
   if (!messages.length) {
     return `<div class="empty-state">No conversation messages yet.</div>`;
   }
@@ -83,7 +84,7 @@ export function renderMessages({ messages = [], formatTimestamp, escapeHtml } = 
       const bubbleClass = `message message-${message.sender}`;
       const senderLabel =
         message.sender === "visitor"
-          ? "Visitor"
+          ? safeVisitorLabel
           : message.sender === "agent"
             ? "Agent"
             : message.sender === "ai"

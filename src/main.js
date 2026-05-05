@@ -74,6 +74,7 @@ const REMEMBER_AUTH_EMAIL_KEY = "workside_support_remember_auth_email";
 const REMEMBER_AUTH_EMAIL_ENABLED_KEY = "workside_support_remember_auth_email_enabled";
 const ADMIN_NOTIFICATION_MUTE_STORAGE_KEY = "workside_admin_notification_mute";
 const AUTO_LOGOUT_ENABLED_STORAGE_KEY = "workside_auto_logout_enabled";
+const THEME_STORAGE_KEY = "workside_support_theme";
 const ALL_TENANTS_VALUE = "__all__";
 
 const URGENCY_OPTIONS = ["low", "medium", "high"];
@@ -101,6 +102,7 @@ const AVAILABILITY_OPTIONS = [
 ];
 const ACTIVE_CONVERSATION_IDLE_MS = 60_000;
 const AVAILABILITY_HEARTBEAT_MS = 45_000;
+const TRANSFER_QUEUE_ALERT_REPEAT_MS = 7000;
 const AUTO_LOGOUT_IDLE_MS = 60 * 60 * 1000;
 const AUTO_LOGOUT_WARNING_MS = 5 * 60 * 1000;
 const INACTIVITY_CHECK_MS = 1000;
@@ -210,6 +212,16 @@ function readStoredFilters() {
   } catch {
     return normalizeFilterState({});
   }
+}
+
+function readStoredTheme() {
+  return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+}
+
+function applyThemePreference() {
+  const isDark = state.theme === "dark";
+  document.body.classList.toggle("theme-dark", isDark);
+  document.documentElement.style.colorScheme = isDark ? "dark" : "light";
 }
 
 function persistFilters() {
@@ -328,6 +340,7 @@ const state = {
   availabilityHeartbeatError: "",
   lastAvailabilityHeartbeatAt: "",
   autoLogoutEnabled: localStorage.getItem(AUTO_LOGOUT_ENABLED_STORAGE_KEY) !== "false",
+  theme: readStoredTheme(),
   lastActivityAt: Date.now(),
   inactivityWarning: {
     open: false,
@@ -456,11 +469,14 @@ const state = {
   userRole: localStorage.getItem(USER_ROLE_STORAGE_KEY) ?? "",
 };
 
+applyThemePreference();
+
 let bannerTimer = null;
 let pollingInterval = null;
 let pollingInFlight = false;
 let availabilityHeartbeatInterval = null;
 let inactivityCheckInterval = null;
+let transferQueueAlertInterval = null;
 let confirmDialogResolver = null;
 let notificationAudioContext = null;
 
@@ -514,6 +530,31 @@ function playNewSessionSound() {
     oscillator.stop(startedAt + 0.3);
   } catch {
     // Audio notification is best-effort; visual banner remains the source of truth.
+  }
+}
+
+function playTransferQueueAlertSound() {
+  if (!state.sessionSoundReady) return;
+  const audioContext = notificationAudioContext;
+  if (!audioContext) return;
+  try {
+    const startedAt = audioContext.currentTime;
+    const gain = audioContext.createGain();
+    gain.gain.setValueAtTime(0.0001, startedAt);
+    gain.gain.exponentialRampToValueAtTime(0.12, startedAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.95);
+    [880, 1046, 880].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const start = startedAt + index * 0.28;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      oscillator.connect(gain);
+      oscillator.start(start);
+      oscillator.stop(start + 0.2);
+    });
+    gain.connect(audioContext.destination);
+  } catch {
+    // The visible queue and banners remain authoritative if the browser blocks audio.
   }
 }
 
@@ -589,6 +630,39 @@ function isWorkflowDialogOpen() {
   );
 }
 
+function waitingTransferSessions(sessions = state.sessions) {
+  return (sessions ?? []).filter(
+    (session) => isSessionEscalated(session) && session.status !== "active_human" && session.status !== "closed",
+  );
+}
+
+function hasWaitingTransfer(sessions = state.sessions) {
+  return waitingTransferSessions(sessions).length > 0;
+}
+
+function stopTransferQueueAlertLoop() {
+  if (!transferQueueAlertInterval) return;
+  clearInterval(transferQueueAlertInterval);
+  transferQueueAlertInterval = null;
+}
+
+function syncTransferQueueAlertLoop(sessions = state.sessions) {
+  if (!state.isAuthenticated || !hasWaitingTransfer(sessions)) {
+    stopTransferQueueAlertLoop();
+    return;
+  }
+
+  if (transferQueueAlertInterval) return;
+  playTransferQueueAlertSound();
+  transferQueueAlertInterval = setInterval(() => {
+    if (!state.isAuthenticated || !hasWaitingTransfer()) {
+      stopTransferQueueAlertLoop();
+      return;
+    }
+    playTransferQueueAlertSound();
+  }, TRANSFER_QUEUE_ALERT_REPEAT_MS);
+}
+
 function stopRealtimeAndPolling() {
   if (pollingInterval) {
     clearInterval(pollingInterval);
@@ -598,6 +672,7 @@ function stopRealtimeAndPolling() {
     clearInterval(availabilityHeartbeatInterval);
     availabilityHeartbeatInterval = null;
   }
+  stopTransferQueueAlertLoop();
   state.realtimeStatus = "offline";
 }
 
@@ -723,7 +798,6 @@ async function runPollingCycle() {
   if (!state.isAuthenticated || pollingInFlight) return;
   if (state.busyAction) return;
   if (isWorkflowDialogOpen()) return;
-  if (isUserEditingDetailForm()) return;
   pollingInFlight = true;
   try {
     if (!state.userRole) {
@@ -2732,6 +2806,7 @@ function applySessionDetail(detail, { forceDraftSync = false, preserveExistingMe
   state.selectedSession = detail.session;
   state.messages = shouldPreserveMessages ? state.messages : incomingMessages;
   upsertSession(detail.session);
+  syncTransferQueueAlertLoop();
   updateDraftsFromSession(detail.session, { force: forceDraftSync });
 
   if (!state.leadDirty) {
@@ -3185,9 +3260,7 @@ async function loadSessions({ silent = false } = {}) {
     }
     state.lastUpdatedAt = new Date().toISOString();
 
-    const queueCount = state.sessions.filter(
-      (session) => isSessionEscalated(session) && session.status !== "closed",
-    ).length;
+    const queueCount = waitingTransferSessions(state.sessions).length;
 
     if (silent && queueCount > state.lastTransferQueueCount) {
       const delta = queueCount - state.lastTransferQueueCount;
@@ -3205,6 +3278,7 @@ async function loadSessions({ silent = false } = {}) {
     }
     state.knownSessionIds = nextSessionIds;
     state.lastTransferQueueCount = queueCount;
+    syncTransferQueueAlertLoop(state.sessions);
 
     const selectedSessionVisible = Boolean(
       state.selectedSessionId && state.sessions.some((session) => session.id === state.selectedSessionId),
@@ -3235,7 +3309,7 @@ async function loadSessions({ silent = false } = {}) {
     }
   } finally {
     state.loadingSessions = false;
-    if (shouldRender && (!silent || !isUserEditingDetailForm())) {
+    if (shouldRender) {
       render();
     }
   }
@@ -3273,7 +3347,7 @@ async function loadSelectedSession({ silent = false } = {}) {
     }
   } finally {
     state.loadingSession = false;
-    if (shouldRender && (!silent || !isUserEditingDetailForm())) {
+    if (shouldRender) {
       render();
     }
   }
@@ -4058,7 +4132,12 @@ function renderActiveFilterSummary() {
 }
 
 function renderMessages(messages) {
-  return renderMessageList({ messages, formatTimestamp, escapeHtml });
+  const visitorLabel =
+    state.selectedSession?.leadName ||
+    inferredContactNameForSession(state.selectedSession) ||
+    state.selectedSession?.leadEmail ||
+    "Visitor";
+  return renderMessageList({ messages, visitorLabel, formatTimestamp, escapeHtml });
 }
 
 function renderDiagnosticsPanel() {
@@ -5333,6 +5412,7 @@ function render() {
   captureDetailPanelScroll();
   const detailFocusState = captureDetailFormFocusState();
   syncAdminNotificationMuteState();
+  applyThemePreference();
 
   if (!state.isAuthenticated || state.authBlocked) {
     renderAuthScreen();
@@ -5340,9 +5420,7 @@ function render() {
   }
 
   const filteredSessions = filterSessions(state.sessions, state.filter, state.search);
-  const transferQueueCount = state.sessions.filter(
-    (session) => isSessionEscalated(session) && session.status !== "closed",
-  ).length;
+  const transferQueueCount = waitingTransferSessions(state.sessions).length;
   const products = state.productOptions.length ? state.productOptions : FALLBACK_PRODUCTS;
 
   app.innerHTML = `
@@ -5436,6 +5514,14 @@ function render() {
             <span class="auto-logout-copy">
               <strong>Auto logout</strong>
               <small>1 hour idle</small>
+            </span>
+          </label>
+          <label class="theme-toggle" title="Switch between light and dark mode for this browser.">
+            <input id="theme-input" type="checkbox" ${state.theme === "dark" ? "checked" : ""} />
+            <span class="theme-switch" aria-hidden="true"></span>
+            <span class="theme-copy">
+              <strong>${state.theme === "dark" ? "Dark mode" : "Light mode"}</strong>
+              <small>${state.theme === "dark" ? "Enabled" : "Default"}</small>
             </span>
           </label>
           <div class="settings-actions">
@@ -5775,6 +5861,16 @@ function bindEvents() {
         resetInactivityWarning();
         setBanner("warning", "Auto logout disabled for this browser.");
       }
+      render();
+    });
+  }
+
+  const themeInput = document.querySelector("#theme-input");
+  if (themeInput) {
+    themeInput.addEventListener("change", (event) => {
+      state.theme = event.target.checked ? "dark" : "light";
+      localStorage.setItem(THEME_STORAGE_KEY, state.theme);
+      applyThemePreference();
       render();
     });
   }
