@@ -2536,7 +2536,7 @@ function activeConversationSessions() {
     (session) =>
       session.status !== "closed" &&
       (isHumanSession(session) || isSessionEscalated(session)) &&
-      isSessionAssignedToCurrentUser(session),
+      (isSessionAssignedToCurrentUser(session) || isSessionEscalated(session)),
   );
 }
 
@@ -5365,7 +5365,7 @@ function renderAssignedToFilterOptions() {
 
 function renderActiveConversationsTray() {
   const conversations = activeConversationSessions();
-  if (conversations.length <= 1) return "";
+  if (conversations.length < 1) return "";
 
   return `
     <section class="active-conversations-tray" aria-label="Active conversations">

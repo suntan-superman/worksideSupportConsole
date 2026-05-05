@@ -11,13 +11,14 @@ export function SessionCard({ session, onPress }: { session: SupportSession; onP
   const sessionDate = formatDateTime(session.startedAt || session.createdAt || session.updatedAt || session.lastInteractionAt);
   const lastInteractionTime = formatTime(session.lastInteractionAt || session.updatedAt || session.startedAt || session.createdAt);
   const preview = cleanPreview(session.lastMessagePreview);
+  const statusLabel = waiting ? "Waiting" : formatStatus(session.transferState || session.status);
 
   return (
     <Pressable style={[styles.card, darkMode && styles.cardDark, waiting && styles.waitingCard]} onPress={onPress}>
       <View style={styles.row}>
         <Text style={[styles.name, darkMode && styles.textDark]} numberOfLines={1}>{name}</Text>
         <Text style={[styles.status, waiting && styles.waitingStatus, humanActive && styles.humanStatus]}>
-          {waiting ? "Waiting" : formatStatus(session.status)}
+          {statusLabel}
         </Text>
       </View>
       <Text style={[styles.meta, darkMode && styles.mutedDark]}>

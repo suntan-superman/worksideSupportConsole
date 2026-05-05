@@ -75,3 +75,8 @@ export function isUnauthorizedError(error: unknown) {
     String(err?.message || "").toLowerCase() === "unauthorized"
   );
 }
+
+export function isInvalidStateError(error: unknown) {
+  const err = error as { status?: number; code?: string; requiredAction?: string } | null;
+  return err?.status === 409 || err?.code === "INVALID_SESSION_STATE" || err?.requiredAction === "refresh_session";
+}

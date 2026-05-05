@@ -7,16 +7,25 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.worksidesoftware.support"
+      "bundleIdentifier": "com.worksidesoftware.support",
+      "buildNumber": "1",
+       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+       }
     },
     "android": {
-      "package": "com.worksidesoftware.support"
+      "package": "com.worksidesoftware.support",
+      "versionCode": 1
     },
     "plugins": ["expo-router", "expo-notifications"],
     "extra": {
-      "apiBaseUrl": "https://api.merxus.ai"
+      "apiBaseUrl": "https://api.merxus.ai",
+      "eas": {
+        "projectId": "59fca7a1-5c55-4b15-b0ea-dc8581a1cd3e"
+      }
     }
   }
 }

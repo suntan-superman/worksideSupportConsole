@@ -12,6 +12,10 @@ export function AvailabilityToggle() {
 
   const heartbeatEnabled = status === "available";
   useAvailabilityHeartbeat(heartbeatEnabled);
+  const statusLabel = formatAvailability(status);
+  const effectiveLabel = formatAvailability(effective);
+  const availabilityLabel =
+    statusLabel.toLowerCase() === effectiveLabel.toLowerCase() ? statusLabel : `${statusLabel} · ${effectiveLabel}`;
 
   useEffect(() => {
     getMyAvailability()
@@ -45,13 +49,22 @@ export function AvailabilityToggle() {
     <View style={[styles.card, darkMode && styles.cardDark]}>
       <View>
         <Text style={[styles.label, darkMode && styles.mutedDark]}>Availability</Text>
-        <Text style={[styles.status, darkMode && styles.textDark]}>{status} · {effective}</Text>
+        <Text style={[styles.status, darkMode && styles.textDark]}>{availabilityLabel}</Text>
       </View>
       <Pressable style={[styles.toggle, status === "available" ? styles.on : styles.off, busy && styles.disabled]} onPress={toggle} disabled={busy}>
         <Text style={styles.toggleText}>{status === "available" ? "Available" : "Go Available"}</Text>
       </Pressable>
     </View>
   );
+}
+
+function formatAvailability(value?: string) {
+  const normalized = String(value || "offline").trim().replace(/_/g, " ");
+  return normalized
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 const styles = StyleSheet.create({

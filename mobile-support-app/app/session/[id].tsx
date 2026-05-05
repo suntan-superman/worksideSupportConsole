@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { useAuth } from "@/context/AuthContext";
 import { usePreferences } from "@/context/PreferencesContext";
 import { usePolling } from "@/hooks/usePolling";
-import { isUnauthorizedError } from "@/services/apiClient";
+import { isInvalidStateError, isUnauthorizedError } from "@/services/apiClient";
 import {
   closeSupportSession,
   getSupportSessionDetail,
@@ -57,7 +57,15 @@ export default function SessionScreen() {
       await takeoverSupportSession(id, session, user?.displayName || user?.email || "Mobile agent");
       await loadDetail();
     } catch (error: any) {
-      Alert.alert("Accept transfer blocked", error?.message || "Unable to accept this transfer.");
+      if (isInvalidStateError(error)) {
+        await loadDetail().catch(() => {});
+        Alert.alert(
+          "Accept transfer blocked",
+          transferStateMessage(error, session?.transferState || session?.status)
+        );
+      } else {
+        Alert.alert("Accept transfer blocked", error?.message || "Unable to accept this transfer.");
+      }
     } finally {
       setBusy(false);
     }
@@ -86,6 +94,9 @@ export default function SessionScreen() {
       await closeSupportSession(id, "Closed from mobile support app.", session);
       router.back();
     } catch (error: any) {
+      if (isInvalidStateError(error)) {
+        await loadDetail().catch(() => {});
+      }
       Alert.alert("Close blocked", error?.message || "Unable to close this session.");
     } finally {
       setBusy(false);
@@ -116,7 +127,9 @@ export default function SessionScreen() {
         <Text style={styles.back}>‹ Back</Text>
         </Pressable>
         <Text style={[styles.title, darkMode && styles.textDark]}>{session?.leadName || session?.visitorName || "Visitor"}</Text>
-        <Text style={[styles.subtitle, darkMode && styles.mutedDark]}>{session?.product || "merxus"} · {session?.status || "loading"}</Text>
+        <Text style={[styles.subtitle, darkMode && styles.mutedDark]}>
+          {session?.product || "merxus"} · {session?.transferState || session?.status || "loading"}
+        </Text>
       </View>
 
       <View style={styles.actions}>
@@ -157,6 +170,15 @@ export default function SessionScreen() {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+function transferStateMessage(error: any, fallbackState?: string) {
+  const details = error?.details || {};
+  const currentState = details.fromState || details.transferState || fallbackState;
+  if (currentState) {
+    return `The backend says this session is currently "${currentState}", so takeover is not allowed from that state. I refreshed the session details.`;
+  }
+  return error?.message || "This session is not currently in a takeover-ready state. I refreshed the session details.";
 }
 
 const styles = StyleSheet.create({

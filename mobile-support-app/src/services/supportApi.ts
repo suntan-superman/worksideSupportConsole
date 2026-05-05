@@ -47,6 +47,10 @@ export function productLabel(value?: string) {
 
 function normalizeStatus(value: unknown, source: AnyRecord = {}) {
   const raw = String(value || "").trim().toLowerCase();
+  const transferState = normalizeTransferState(source);
+  if (transferState === "closed") return "closed";
+  if (transferState === "human_takeover" || transferState === "transfer_accepted") return "active_human";
+  if (transferState === "transfer_requested" || transferState === "transfer_initiated") return "escalated";
   const transferRequested = Boolean(
     pickFirst(
       source.transferRequested,
@@ -66,6 +70,26 @@ function normalizeStatus(value: unknown, source: AnyRecord = {}) {
   return raw || "active_ai";
 }
 
+function normalizeTransferState(source: AnyRecord = {}) {
+  return meaningfulText(
+    pickFirst(
+      source.transferState,
+      source.transfer_state,
+      source.support?.transferState,
+      source.support?.transfer_state,
+      source.support?.transfer?.state,
+      source.transfer?.state,
+      source.transfer?.status,
+      source.handoff?.state,
+      source.handoff?.status,
+      source.escalation?.state,
+      source.escalation?.status
+    )
+  )
+    .trim()
+    .toLowerCase();
+}
+
 export type SupportSession = {
   id: string;
   product?: string;
@@ -74,6 +98,7 @@ export type SupportSession = {
   status: string;
   routingStatus?: string;
   availabilityOutcome?: string;
+  transferState?: string;
   urgency?: string;
   assignedTo?: string;
   ownerName?: string;
@@ -124,6 +149,7 @@ function normalizeSession(raw: AnyRecord): SupportSession {
     availabilityOutcome: meaningfulText(
       pickFirst(raw.availabilityOutcome, raw.support?.availabilityOutcome, raw.support?.routing?.availabilityOutcome, "")
     ),
+    transferState: normalizeTransferState(raw),
     urgency: meaningfulText(pickFirst(raw.urgency, raw.inquiry?.urgency, raw.support?.urgency, "medium")) || "medium",
     assignedTo: meaningfulText(pickFirst(raw.assignedTo, raw.assignedToUserId, raw.support?.assignedTo, "")),
     ownerName: meaningfulText(pickFirst(raw.ownerName, raw.agentName, raw.support?.ownerName, raw.support?.agentName, "")),
@@ -132,7 +158,7 @@ function normalizeSession(raw: AnyRecord): SupportSession {
     leadEmail: meaningfulText(pickFirst(raw.leadEmail, raw.contactEmail, raw.lead?.email, raw.customer?.email, "")),
     leadCaptured: Boolean(pickFirst(raw.leadCaptured, raw.lead?.captured, raw.leadName || raw.leadEmail, false)),
     inquiryCaptured: Boolean(pickFirst(raw.inquiryCaptured, raw.inquiry?.captured, raw.inquiry?.messageSummary, false)),
-    transferRequested: status === "escalated",
+    transferRequested: isTakeoverReadyState(normalizeTransferState(raw)) || (!normalizeTransferState(raw) && status === "escalated"),
     lastMessagePreview: meaningfulText(pickFirst(raw.lastMessagePreview, raw.preview, raw.lastMessage, raw.lastMessage?.text, raw.lastMessage?.message)),
     createdAt: meaningfulText(pickFirst(raw.createdAt, raw.initialDate, raw.startedAt, "")),
     startedAt: meaningfulText(pickFirst(raw.startedAt, raw.initialDate, raw.createdAt, "")),
@@ -170,11 +196,18 @@ function detailFromPayload(payload: AnyRecord, sessionId: string) {
 }
 
 export function isWaitingForTakeover(session?: SupportSession | null) {
-  return session?.status === "escalated" || Boolean(session?.transferRequested);
+  if (!session) return false;
+  if (session.transferState) return isTakeoverReadyState(session.transferState);
+  return session.status === "escalated" || Boolean(session.transferRequested);
 }
 
 export function isHumanActive(session?: SupportSession | null) {
   return session?.status === "active_human";
+}
+
+export function isTakeoverReadyState(value?: string) {
+  const state = String(value || "").trim().toLowerCase();
+  return state === "transfer_requested" || state === "transfer_initiated";
 }
 
 export async function getSupportSessions(filters: { product?: string } = {}) {
