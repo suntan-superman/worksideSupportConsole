@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Workside Support",
+    "slug": "workside-support-mobile",
+    "scheme": "worksidesupport",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.worksidesoftware.support"
+    },
+    "android": {
+      "package": "com.worksidesoftware.support"
+    },
+    "plugins": ["expo-router", "expo-notifications"],
+    "extra": {
+      "apiBaseUrl": "https://api.merxus.ai"
+    }
+  }
+}

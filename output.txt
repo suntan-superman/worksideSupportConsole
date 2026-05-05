@@ -1,87 +1,202 @@
-Implemented the backend pieces from the attached review.
+PS C:\users\sjroy\source\worksidesupportconsole\mobile-support-app> npx expo run:android
+√ Created native directory
+√ Updated package.json | no changes
+» android: userInterfaceStyle: Install expo-system-ui in your project to enable this feature.
+√ Finished prebuild
+› Building app...
+Starting a Gradle Daemon (subsequent builds will be faster)
+Configuration on demand is an incubating feature.
 
-Changed:
+> Configure project :
+[ExpoRootProject] Using the following versions:
+  - buildTools:  36.0.0
+  - minSdk:      24
+  - compileSdk:  36
+  - targetSdk:   36
+  - ndk:         27.1.12297006
+  - kotlin:      2.1.20
+  - ksp:         2.1.20-2.0.1
 
+> Configure project :expo
 
-
-publicChatService.js (line 514)
-
-
-Human handoff now sends SMS to eligible support users, not just the assigned user.
-
-Filters through the existing routing/candidate logic and respects SMS preference + valid phone presence.
-
-Prevents duplicate sends by reusing an existing attempted notificationStatus.
-
-Persists notificationStatus and notificationTimeline at:
-
-session root
-
-support
-
-support.routing
-
-
-
-
-Added public/customer-safe transcript sending with email matching, visitor/session check, rate limiting, and receipt/audit persistence.
-
-
-
-
-
-publicChatController.js (line 93)
+Using expo modules
+  - expo-constants (18.0.13)
+  - expo-modules-core (3.0.30)G [35s]
+  - [?] expo-application (7.0.8)
+  - [?] expo-asset (12.0.13)
+  - [?] expo-file-system (19.0.22)
+  - [?] expo-font (14.0.11)
+  - [?] expo-keep-awake (15.0.8)
+  - [?] expo-linking (8.0.12)
+  - [?] expo-notifications (0.32.17)
 
 
-Added public transcript controller.
+> Task :expo-modules-core:processDebugManifest
+C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\expo-modules-core\android\src\main\AndroidManifest.xml:8:9-11:45 Warning:
+        meta-data#com.facebook.soloader.enabled@android:value was tagged at AndroidManifest.xml:8 to replace other declarations but no other declaration present
 
+> Task :expo-modules-core:configureCMakeDebug[arm64-v8a]
+[CXX5304] Observed package id 'emulator' in inconsistent location 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator.backup' (Expected 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator')
+[CXX5304] Observed package id 'emulator' in inconsistent location 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator.backup' (Expected 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator')
+[CXX5304] Already observed package id 'emulator' in 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator'. Skipping duplicate at 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator.backup'
+[CXX5304] Already observed package id 'emulator' in 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator'. Skipping duplicate at 'C:\Users\sjroy\AppData\Local\Android\Sdk\emulator.backup'
 
+> Task :react-native-async-storage_async-storage:processDebugManifest
+package="com.reactnativecommunity.asyncstorage" found in source AndroidManifest.xml: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\@react-native-async-storage\async-storage\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.reactnativecommunity.asyncstorage" from the source AndroidManifest.xml: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\@react-native-async-storage\async-storage\android\src\m
+> Task :react-native-safe-area-context:processDebugManifest
+package="com.th3rdwave.safeareacontext" found in source AndroidManifest.xml: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\react-native-safe-area-context\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.th3rdwave.safeareacontext" from the source AndroidManifest.xml: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\react-native-safe-area-context\android\src\main\AndroidManifest.xml.
 
+> Task :react-native-async-storage_async-storage:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\@react-native-async-storage\async-storage\android\src\javaPackage\java\com\reactnativecommunity\asyncstorage\AsyncStoragePackage.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
 
+> Task :app:processDebugMainManifest
+C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\android\app\src\debug\AndroidManifest.xml:6:5-162 Warning:
+        application@android:usesCleartextTraffic was tagged at AndroidManifest.xml:6 to replace other declarations but no other declaration present
+C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\android\app\src\debug\AndroidManifest.xml Warning:
+        provider#expo.modules.filesystem.FileSystemFileProvider@android:authorities was tagged at AndroidManifest.xml:0 to replace other declarations but no other declaration present
 
-publicChatRoutes.js (line 31)
+> Task :react-native-safe-area-context:compileDebugKotlin
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaView.kt:59:23 'val uiImplementation: UIImplementation!' is deprecated. Deprecated in Java.
 
+> Task :react-native-screens:compileDebugKotlin
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:56:9 The corresponding parameter in the supertype 'BaseReactPackage' is named 'name'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:57:9 The corresponding parameter in the supertype 'BaseReactPackage' is named 'reactContext'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:70:17 'constructor(name: String, className: String, canOverrideExistingModule: Boolean, needsEagerInit: Boolean, hasConstants: Boolean, isCxxModule: Boolean, isTurboModule: Boolean): ReactModuleInfo' is deprecated. This constructor is deprecated and will be removed in the future. Use ReactModuleInfo(String, String, boolean, boolean, boolean, boolean)].
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:48:77 Unchecked cast of '(CoordinatorLayout.Behavior<View!>?..CoordinatorLayout.Behavior<*>?)' to 'BottomSheetBehavior<Screen>'.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:383:36 'fun setTranslucent(screen: Screen, activity: Activity?, context: ReactContext?): Unit' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:402:36 'fun setColor(screen: Screen, activity: Activity?, context: ReactContext?): Unit' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:420:36 'fun setNavigationBarColor(screen: Screen, activity: Activity?): Unit' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:437:36 'fun setNavigationBarTranslucent(screen: Screen, activity: Activity?): Unit' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:217:31 'var targetElevation: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:220:13 'fun setHasOptionsMenu(p0: Boolean): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:397:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:404:22 'fun onPrepareOptionsMenu(p0: Menu): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:407:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:412:22 'fun onCreateOptionsMenu(p0: Menu, p1: MenuInflater): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfig.kt:435:18 'val reactNativeHost: ReactNativeHost' is deprecated. You should not use ReactNativeHost directly in the New Architecture. Use ReactHost instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenViewManager.kt:203:14 'var statusBarColor: Int?' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenViewManager.kt:220:14 'var isStatusBarTranslucent: Boolean?' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenViewManager.kt:237:14 'var navigationBarColor: Int?' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenViewManager.kt:246:14 'var isNavigationBarTranslucent: Boolean?' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:55:42 'fun replaceSystemWindowInsets(p0: Int, p1: Int, p2: Int, p3: Int): WindowInsetsCompat' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:56:39 'val systemWindowInsetLeft: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:58:39 'val systemWindowInsetRight: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:59:39 'val systemWindowInsetBottom: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:102:53 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:106:37 'var statusBarColor: Int?' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:113:48 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:116:32 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:162:49 'var isStatusBarTranslucent: Boolean?' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:218:43 'var navigationBarColor: Int?' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:218:72 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:224:16 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:241:55 'var isNavigationBarTranslucent: Boolean?' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:283:13 'fun setColor(screen: Screen, activity: Activity?, context: ReactContext?): Unit' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:285:13 'fun setTranslucent(screen: Screen, activity: Activity?, context: ReactContext?): Unit' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:289:13 'fun setNavigationBarColor(screen: Screen, activity: Activity?): Unit' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:290:13 'fun setNavigationBarTranslucent(screen: Screen, activity: Activity?): Unit' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:354:42 'var statusBarColor: Int?' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:356:48 'var isStatusBarTranslucent: Boolean?' is deprecated. For apps targeting SDK 35 or above this prop has no effect because edge-to-edge is enabled by default and the status bar is always translucent.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:359:57 'var navigationBarColor: Int?' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:360:63 'var isNavigationBarTranslucent: Boolean?' is deprecated. For all apps targeting Android SDK 35 or above edge-to-edge is enabled by default.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:7:8 'object ReactFeatureFlags : Any' is deprecated. Use com.facebook.react.internal.featureflags.ReactNativeFeatureFlags instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:25:13 'object ReactFeatureFlags : Any' is deprecated. Use com.facebook.react.internal.featureflags.ReactNativeFeatureFlags instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:32:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'left'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:33:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'top'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:34:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'right'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:35:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'bottom'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:71:9 The corresponding parameter in the supertype 'RootView' is named 'childView'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:72:9 The corresponding parameter in the supertype 'RootView' is named 'ev'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:79:46 The corresponding parameter in the supertype 'RootView' is named 'ev'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:83:9 The corresponding parameter in the supertype 'RootView' is named 'childView'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:84:9 The corresponding parameter in the supertype 'RootView' is named 'ev'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:95:34 The corresponding parameter in the supertype 'RootView' is named 't'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:63:9 The corresponding parameter in the supertype 'ReactCompoundView' is named 'touchX'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:64:9 The corresponding parameter in the supertype 'ReactCompoundView' is named 'touchY'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:68:9 The corresponding parameter in the supertype 'ReactCompoundViewGroup' is named 'touchX'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:69:9 The corresponding parameter in the supertype 'ReactCompoundViewGroup' is named 'touchY'. This may cause problems when calling this function with named arguments.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHostViewManager.kt:37:9 The corresponding parameter in the supertype 'TabsHostViewManager' is named 'view'. This may cause problems when calling this function with named arguments.
 
-Added transcript endpoints:
+> Task :app:configureCMakeDebug[arm64-v8a]
+C/C++: CMake Warning in C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt:
+C/C++:   The object file directory
+C/C++:     C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/android/app/.cxx/Debug/4p2u6e75/arm64-v8a/safeareacontext_autolinked_build/CMakeFiles/react_codegen_safeareacontext.dir/./
+C/C++:   has 186 characters.  The maximum full path to an object file is 250
+C/C++:   characters (see CMAKE_OBJECT_PATH_MAX).  Object file
+C/C++:     C_/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-safe-area-context/android/build/generated/source/codegen/jni/react/renderer/components/safeareacontext/safeareacontextJSI-generated.cpp.o
+C/C++:   cannot be safely placed under this directory.  The build may not work
+C/C++:   correctly.
 
-POST /chat/public/session/:sessionId/transcript
+> Task :app:buildCMakeDebug[arm64-v8a] FAILED
+C/C++: ninja: error: Stat(safeareacontext_autolinked_build/CMakeFiles/react_codegen_safeareacontext.dir/C_/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-safe-area-context/android/build/generated/source/codegen/jni/react/renderer/components/safeareacontext/safeareacontextJSI-generated.cpp.o): Filename longer than 260 characters
 
-POST /api/chat/public/session/:sessionId/transcript
+> Task :expo-modules-core:compileDebugKotlin
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/apploader/RNHeadlessAppLoader.kt:48:87 'val reactNativeHost: ReactNativeHost' is deprecated. You should not use ReactNativeHost directly in the New Architecture. Use ReactHost instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/apploader/RNHeadlessAppLoader.kt:91:85 'val reactNativeHost: ReactNativeHost' is deprecated. You should not use ReactNativeHost directly in the New Architecture. Use ReactHost instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/apploader/RNHeadlessAppLoader.kt:120:83 'val reactNativeHost: ReactNativeHost' is deprecated. You should not use ReactNativeHost directly in the New Architecture. Use ReactHost instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/apploader/AppLoaderProvider.kt:34:52 Unchecked cast of 'Class<*>!' to 'Class<out HeadlessAppLoader>'.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/AppContext.kt:30:8 'typealias ErrorManagerModule = JSLoggerModule' is deprecated. Use JSLoggerModule instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/AppContext.kt:253:21 'typealias ErrorManagerModule = JSLoggerModule' is deprecated. Use JSLoggerModule instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/AppContext.kt:343:21 'val DEFAULT: Int' is deprecated. UIManagerType.DEFAULT will be deleted in the next release of React Native. Use [LEGACY] instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/defaultmodules/NativeModulesProxyModule.kt:16:5 'fun Constants(legacyConstantsProvider: () -> Map<String, Any?>): Unit' is deprecated. Use `Constant` or `Property` instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/jni/PromiseImpl.kt:65:51 'val errorManager: JSLoggerModule?' is deprecated. Use AppContext.jsLogger instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/jni/PromiseImpl.kt:69:22 'fun reportExceptionToLogBox(codedException: CodedException): Unit' is deprecated. Use appContext.jsLogger.error(...) instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/views/ViewDefinitionBuilder.kt:464:16 'val errorManager: JSLoggerModule?' is deprecated. Use AppContext.jsLogger instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/views/ViewDefinitionBuilder.kt:464:30 'fun reportExceptionToLogBox(codedException: CodedException): Unit' is deprecated. Use appContext.jsLogger.error(...) instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/views/ViewManagerDefinition.kt:41:16 'val errorManager: JSLoggerModule?' is deprecated. Use AppContext.jsLogger instead.
+w: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/views/ViewManagerDefinition.kt:41:30 'fun reportExceptionToLogBox(codedException: CodedException): Unit' is deprecated. Use appContext.jsLogger.error(...) instead.
 
-POST /public/chat/sessions/:sessionId/transcript
+[Incubating] Problems report is available at: file:///C:/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/android/build/reports/problems/problems-report.html
 
-POST /api/public/chat/sessions/:sessionId/transcript
+FAILURE: Build failed with an exception.
 
+* What went wrong:
+Execution failed for task ':app:buildCMakeDebug[arm64-v8a]'.
+> com.android.ide.common.process.ProcessException: ninja: Entering directory `C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\android\app\.cxx\Debug\4p2u6e75\arm64-v8a'
+  [0/2] Re-checking globbed directories...
 
+  C++ build system [build] failed while executing:
+      @echo off
+      "C:\\Users\\sjroy\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe" ^
+        -C ^
+        "C:\\Users\\sjroy\\Source\\WorksideSupportConsole\\mobile-support-app\\android\\app\\.cxx\\Debug\\4p2u6e75\\arm64-v8a" ^
+        appmodules ^
+        react_codegen_rnscreens ^
+        react_codegen_safeareacontext
+    from C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\android\app
+  ninja: error: Stat(safeareacontext_autolinked_build/CMakeFiles/react_codegen_safeareacontext.dir/C_/Users/sjroy/Source/WorksideSupportConsole/mobile-support-app/node_modules/react-native-safe-area-context/android/build/generated/source/codegen/jni/react/renderer/components/safeareacontext/safeareacontextJSI-generated.cpp.o): Filename longer than 260 characters
 
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
 
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
 
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
 
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 
-
-supportGlobalModel.test.js (line 3084)
-
-
-Added coverage for SMS handoff notification persistence and one-send behavior.
-
-Added coverage for public transcript email safety and repeat-send rate limiting.
-
-
-
-
-
-Verification passed:
-
-
-node --check on touched service/controller/route files
-
-vitest -t '33ca'
-
-vitest -t '33cb'
-
-vitest -t 'public website chat human request'
-
-vitest -t 'public website chat timeout'
-
-
-One small deployment note: SMS messages include a direct support-session link when one of these env vars is set: SUPPORT_CONSOLE_URL, WORKSIDE_SUPPORT_CONSOLE_URL, or FRONTEND_URL. If none is set, the SMS falls back to “Open Support Console to accept the transfer.”
+BUILD FAILED in 2m 3s
+159 actionable tasks: 129 executed, 30 from cache
+Error: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\android\gradlew.bat app:assembleDebug -x lint -x test --configure-on-demand --build-cache -PreactNativeDevServerPort=8081 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a exited with non-zero code: 1
+Error: C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\android\gradlew.bat app:assembleDebug -x lint -x test --configure-on-demand --build-cache -PreactNativeDevServerPort=8081 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a exited with non-zero code: 1
+    at ChildProcess.completionListener (C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\@expo\spawn-async\src\spawnAsync.ts:67:13)
+    at Object.onceWrapper (node:events:639:26)
+    at ChildProcess.emit (node:events:524:28)
+    at ChildProcess.cp.emit (C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\cross-spawn\lib\enoent.js:34:29)
+    at maybeClose (node:internal/child_process:1101:16)
+    at Process.ChildProcess._handle.onexit (node:internal/child_process:304:5)
+    ...
+    at spawnAsync (C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\@expo\spawn-async\src\spawnAsync.ts:28:21)
+    at spawnGradleAsync (C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\gradle.ts:134:28)
+    at assembleAsync (C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\gradle.ts:83:16)
+    at runAndroidAsync (C:\Users\sjroy\Source\WorksideSupportConsole\mobile-support-app\node_modules\expo\node_modules\@expo\cli\src\run\android\runAndroidAsync.ts:62:24)

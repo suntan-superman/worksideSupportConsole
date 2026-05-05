@@ -12,6 +12,8 @@
     "test:e2e:live:support": "playwright test --config=playwright.live.config.js",
     "test:e2e:live:public": "playwright test --config=playwright.public.config.js",
     "test:e2e:live:qa": "playwright test --config=playwright.qa.config.js",
+    "mobile:start": "npm --prefix mobile-support-app run start",
+    "mobile:typecheck": "npm --prefix mobile-support-app run typecheck",
     "load:public-chat": "node scripts/run-k6.js load-tests/public-chat-load.js",
     "load:support-api": "node scripts/run-k6.js load-tests/support-api-load.js",
     "load:support-multi-user": "node scripts/run-k6.js load-tests/support-multi-user.js",
