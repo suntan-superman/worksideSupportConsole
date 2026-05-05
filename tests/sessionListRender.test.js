@@ -56,7 +56,8 @@ describe("session list render helpers", () => {
       escapeHtml,
     });
 
-    expect(html).toContain("Ada Lovelace");
+    expect(html).toContain("Ada");
+    expect(html).not.toContain("Ada Lovelace");
     expect(html).toContain("&lt;hello&gt;");
     expect(html).toContain("May 3, 6:00 PM");
   });

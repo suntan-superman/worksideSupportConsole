@@ -74,7 +74,8 @@ export function renderSessionList({
 
 export function renderMessages({ messages = [], visitorLabel = "Visitor", formatTimestamp, escapeHtml } = {}) {
   const safeEscape = typeof escapeHtml === "function" ? escapeHtml : (value) => String(value ?? "");
-  const safeVisitorLabel = String(visitorLabel ?? "").trim() || "Visitor";
+  const firstVisitorName = String(visitorLabel ?? "").trim().split(/\s+/)[0] || "";
+  const safeVisitorLabel = firstVisitorName || "Visitor";
   if (!messages.length) {
     return `<div class="empty-state">No conversation messages yet.</div>`;
   }
