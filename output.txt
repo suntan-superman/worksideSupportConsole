@@ -1,113 +1,87 @@
-Backend Request
-Please ensure live transfer notifications are sent through the backend whenever a public chat session enters the human-waiting/escalated state.
+Implemented the backend pieces from the attached review.
 
-Required behavior:
+Changed:
 
-When a chat user requests a human, the backend should transition the session into the transfer/escalated state.
 
-At the same time, send SMS notifications to eligible support users.
 
-Eligible users should be filtered by:
+publicChatService.js (line 514)
 
-tenant/customer access
-product access
-department/routing match
-active support user status
-notification preferences, especially sms !== false
-valid phone/mobile number
-availability rules, if routing requires available agents
-SMS should be sent once per transfer request, not repeatedly from polling.
 
-The SMS should include enough context to act:
+Human handoff now sends SMS to eligible support users, not just the assigned user.
 
-visitor name if known
-product/customer
-urgency if available
-short message/inquiry summary
-link to support console/session if available
-Example SMS:
+Filters through the existing routing/candidate logic and respects SMS preference + valid phone presence.
 
-Workside Support: Jerry is waiting for human support in Merxus AI. Topic: pricing question. Open Support Console to accept the transfer.
-Record notification results on the session so the support console can display them.
-The frontend already expects/normalizes fields like:
+Prevents duplicate sends by reusing an existing attempted notificationStatus.
 
-session.notificationStatus
-session.notificationTimeline
-session.support.notificationStatus
-session.support.notificationTimeline
-session.support.routing.notificationStatus
-session.support.routing.notificationTimeline
-Each timeline item should include fields like:
+Persists notificationStatus and notificationTimeline at:
 
-{
-  "channel": "sms",
-  "recipient": "+16613451154",
-  "status": "sent",
-  "reason": "",
-  "attemptedAt": "2026-05-04T18:00:00.000Z",
-  "provider": "twilio",
-  "messageId": "SMxxxxxxxx"
-}
-For failures/skips:
+session root
 
-{
-  "channel": "sms",
-  "recipient": "+16613451154",
-  "status": "failed",
-  "reason": "twilio_error",
-  "attemptedAt": "2026-05-04T18:00:00.000Z"
-}
-or:
+support
 
-{
-  "channel": "sms",
-  "recipient": "",
-  "status": "skipped",
-  "reason": "missing_phone",
-  "attemptedAt": "2026-05-04T18:00:00.000Z"
-}
-Also expose an aggregate status object:
-{
-  "attempted": true,
-  "sent": true,
-  "channel": "sms",
-  "recipient": "+16613451154",
-  "reason": "sent",
-  "channelResults": [
-    {
-      "channel": "sms",
-      "recipient": "+16613451154",
-      "status": "sent",
-      "attemptedAt": "2026-05-04T18:00:00.000Z"
-    }
-  ]
-}
-The existing support console will render this under “Routing / Notifications.” No new console endpoint is required if these fields are returned by:
-GET /support/sessions
-GET /support/sessions/:sessionId
-Customer Transcript On End Chat
-Separately, the customer-facing “email me a copy” flow is not the same as the support console Send Transcript action.
+support.routing
 
-Please add or confirm a public/customer-safe backend endpoint for the website chat widget, for example:
+
+
+
+Added public/customer-safe transcript sending with email matching, visitor/session check, rate limiting, and receipt/audit persistence.
+
+
+
+
+
+publicChatController.js (line 93)
+
+
+Added public transcript controller.
+
+
+
+
+
+publicChatRoutes.js (line 31)
+
+
+Added transcript endpoints:
+
+POST /chat/public/session/:sessionId/transcript
+
+POST /api/chat/public/session/:sessionId/transcript
 
 POST /public/chat/sessions/:sessionId/transcript
-or whatever public chat route naming matches the backend.
 
-Requirements:
+POST /api/public/chat/sessions/:sessionId/transcript
 
-Must not require support-user auth.
-Must only send to the captured customer email for that session, or require a verified/same-session email.
-Must use customer-safe defaults:
-include visitor/customer messages
-include human support messages
-exclude internal notes
-exclude system events
-exclude private routing/admin details
-AI messages optional, but default should be customer-safe
-Should reject if session/email does not match.
-Should rate-limit to prevent abuse.
-Should record transcript receipt on the session.
-Once that endpoint exists, the Merxus public chat widget can ask at chat end:
 
-Would you like us to email you a copy of this chat?
-and call that public transcript endpoint if the user confirms.
+
+
+
+
+
+
+supportGlobalModel.test.js (line 3084)
+
+
+Added coverage for SMS handoff notification persistence and one-send behavior.
+
+Added coverage for public transcript email safety and repeat-send rate limiting.
+
+
+
+
+
+Verification passed:
+
+
+node --check on touched service/controller/route files
+
+vitest -t '33ca'
+
+vitest -t '33cb'
+
+vitest -t 'public website chat human request'
+
+vitest -t 'public website chat timeout'
+
+
+One small deployment note: SMS messages include a direct support-session link when one of these env vars is set: SUPPORT_CONSOLE_URL, WORKSIDE_SUPPORT_CONSOLE_URL, or FRONTEND_URL. If none is set, the SMS falls back to “Open Support Console to accept the transfer.”
