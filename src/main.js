@@ -387,6 +387,7 @@ const state = {
   realtimeStatus: "offline",
   lastTransferQueueCount: 0,
   knownSessionIds: new Set(),
+  sessionListInitialized: false,
   activeConversationUnread: {},
   sessionSoundReady: false,
   showDiagnostics: false,
@@ -509,6 +510,13 @@ function unlockNotificationSound() {
   } catch {
     state.sessionSoundReady = false;
   }
+}
+
+function handleNotificationSoundGesture() {
+  unlockNotificationSound();
+  if (!state.sessionSoundReady) return;
+  window.removeEventListener("pointerdown", handleNotificationSoundGesture);
+  window.removeEventListener("keydown", handleNotificationSoundGesture);
 }
 
 function playNewSessionSound() {
@@ -1879,6 +1887,7 @@ async function handleLogout({ reason = "manual" } = {}) {
   state.closeRequirementsBySession = {};
   state.noFollowUpDisabledScopes = {};
   state.knownSessionIds = new Set();
+  state.sessionListInitialized = false;
   state.adminPanelOpen = false;
   state.adminUsers = [];
   state.adminDepartments = [];
@@ -3233,6 +3242,7 @@ async function loadSessions({ silent = false } = {}) {
     clearAuthBlockedState();
     state.accessDenied = false;
     const previousSessionIds = state.knownSessionIds;
+    const sessionListWasInitialized = state.sessionListInitialized;
     const nextSessionIds = new Set(sessions.map((session) => session.id).filter(Boolean));
     const newSessionCount = [...nextSessionIds].filter((id) => !previousSessionIds.has(id)).length;
     const sortedSessions = sortSessionsByPriority(sessions);
@@ -3240,6 +3250,7 @@ async function loadSessions({ silent = false } = {}) {
     const listUnchanged = nextFingerprint === state.lastSessionListFingerprint;
     if (silent && listUnchanged) {
       state.knownSessionIds = nextSessionIds;
+      state.sessionListInitialized = true;
       return;
     }
 
@@ -3269,7 +3280,7 @@ async function loadSessions({ silent = false } = {}) {
         `${delta} new transfer ${delta === 1 ? "request" : "requests"} entered the queue.`,
       );
     }
-    if (silent && previousSessionIds.size > 0 && newSessionCount > 0) {
+    if (silent && sessionListWasInitialized && newSessionCount > 0) {
       playNewSessionSound();
       setBanner(
         "success",
@@ -3277,6 +3288,7 @@ async function loadSessions({ silent = false } = {}) {
       );
     }
     state.knownSessionIds = nextSessionIds;
+    state.sessionListInitialized = true;
     state.lastTransferQueueCount = queueCount;
     syncTransferQueueAlertLoop(state.sessions);
 
@@ -6409,8 +6421,8 @@ window.addEventListener("beforeunload", () => {
   stopInactivityTimer();
 });
 
-window.addEventListener("pointerdown", unlockNotificationSound, { once: true });
-window.addEventListener("keydown", unlockNotificationSound, { once: true });
+window.addEventListener("pointerdown", handleNotificationSoundGesture, { passive: true });
+window.addEventListener("keydown", handleNotificationSoundGesture);
 
 ["pointerdown", "keydown", "touchstart", "wheel", "focus"].forEach((eventName) => {
   window.addEventListener(
