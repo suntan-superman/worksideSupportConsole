@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  notificationTimelineDetail,
   notificationStatusLabel,
   renderRoutingNotificationsPanel,
   renderSessionOperationsSummary,
@@ -15,6 +16,16 @@ describe("routing and notification render helpers", () => {
   it("normalizes notification status labels", () => {
     expect(notificationStatusLabel("sent_email")).toBe("sent email");
     expect(notificationStatusLabel("")).toBe("Unknown");
+  });
+
+  it("shows provider error details before generic provider_error reason", () => {
+    expect(
+      notificationTimelineDetail({
+        reason: "provider_error",
+        error: "Twilio 21608: The number is unverified",
+        provider: "twilio",
+      }),
+    ).toBe("provider_error: Twilio 21608: The number is unverified");
   });
 
   it("renders operations summary with assignment, routing, and transcript status", () => {
@@ -59,6 +70,13 @@ describe("routing and notification render helpers", () => {
             attemptedAt: "2026-05-03T18:01:00.000Z",
             provider: "mailgun",
           },
+          {
+            channel: "sms",
+            recipient: "+16613451154",
+            status: "failed",
+            reason: "provider_error",
+            error: "Twilio 21608: The number is unverified",
+          },
         ],
       },
       formatTimestamp: () => "May 3, 6:01 PM",
@@ -71,6 +89,7 @@ describe("routing and notification render helpers", () => {
     expect(html).toContain("Email dispatched");
     expect(html).toContain("email to &lt;lead@example.com&gt;");
     expect(html).toContain("provider accepted");
+    expect(html).toContain("provider_error: Twilio 21608: The number is unverified");
     expect(html).toContain("May 3, 6:01 PM");
   });
 

@@ -4,6 +4,15 @@ export function notificationStatusLabel(value) {
   return raw.replace(/_/g, " ");
 }
 
+export function notificationTimelineDetail(item = {}) {
+  const reason = String(item.reason ?? "").trim();
+  const error = String(item.error ?? "").trim();
+  const provider = String(item.provider ?? "").trim();
+  const messageId = String(item.providerMessageId || item.messageId || "").trim();
+  if (reason === "provider_error" && error) return `${reason}: ${error}`;
+  return reason || error || provider || messageId || "No additional detail";
+}
+
 export function renderSessionOperationsSummary({
   session,
   formatTimestamp = (value) => value,
@@ -115,7 +124,7 @@ export function renderRoutingNotificationsPanel({
                     .filter(Boolean)
                     .join(" ");
                   const status = notificationStatusLabel(item.status);
-                  const detail = item.reason || item.error || item.provider || item.messageId || "No additional detail";
+                  const detail = notificationTimelineDetail(item);
                   return `
                     <article>
                       <strong>${escapeHtml(label)}</strong>
