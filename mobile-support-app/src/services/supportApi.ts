@@ -39,6 +39,7 @@ export function formatStatus(value?: string) {
 
 export function productLabel(value?: string) {
   const product = String(value || "").trim().toLowerCase();
+  if (product === "radiusiq" || product === "radius_iq") return "RadiusIQ";
   if (product === "merxus") return "Merxus AI";
   if (product === "home_advisor") return "Home Advisor";
   if (product === "workside_logistics") return "Workside Logistics";

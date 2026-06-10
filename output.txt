@@ -1,61 +1,59 @@
-Required SMS Backend Fix
-When a new lead/chat transfer is created and support notification email is sent, backend must also attempt SMS notification to eligible support users.
-
-Please verify:
-
-Support user phone normalization
-
-Confirm Stan/Mark support-user records have valid phone numbers.
-Normalize all support-user phone numbers to E.164 before sending:
-6613451154 should become +16613451154
-Reject or skip with clear reason if phone cannot be normalized.
-Notification fan-out
-
-Email success must not short-circuit SMS.
-SMS should be attempted independently after routing chooses eligible support users.
-Preferred contact = sms should increase confidence that SMS is appropriate, but support SMS should still depend on support-user notification preferences.
-SMS provider result logging
-Add notification timeline entries like:
-
-{
-  "channel": "sms",
-  "recipient": "+16613451154",
-  "recipientUserId": "support_user_id",
-  "status": "sent",
-  "providerMessageId": "twilio_sid",
-  "attemptedAt": "2026-05-07T17:41:00.000Z"
-}
-If skipped/failed:
-
-{
-  "channel": "sms",
-  "recipient": "+16613451154",
-  "status": "failed",
-  "reason": "provider_error",
-  "error": "safe provider error summary"
-}
-Confirm skipped reasons
-If no SMS is sent, backend must expose why:
-
-missing_support_user_phone
-invalid_support_user_phone
-sms_notifications_disabled
-support_user_muted
-no_available_agent
-provider_error
-Console API response
-GET /support/sessions/:id should include notificationTimeline or support.routing.notificationStatus.channelResults so the console can show email sent but SMS failed/skipped.
-
-Transcript Error Backend Fix
-The transcript endpoint is rejecting the visitor request:
-
-This transcript request does not match the chat session.
-
-Please check POST /chat/public/session/:sessionId/transcript validation.
-
-Expected behavior:
-
-If the visitor has the current sessionId and matching visitorId, allow transcript email to the captured lead email.
-Do not require a support-console session id if the public chat session id maps to it.
-If there are separate public/support IDs, backend should resolve the public session to the support session internally.
-The endpoint should accept transcript requests during the end-chat flow before the session is fully timed out/closed.
+onAuthStateChanged fired: user exists Object
+index-Bq051QD4.js:2 Setting user, refreshing token...
+index-Bq051QD4.js:2 Refreshing token and claims...
+index-Bq051QD4.js:2 Decoded claims: Object
+index-Bq051QD4.js:2 Claims set successfully: Object
+index-Bq051QD4.js:2 State update complete, claims should be available
+index-Bq051QD4.js:2 Token refresh result: true
+index-Bq051QD4.js:2 Auth setup complete
+index-Bq051QD4.js:2 onAuthStateChanged fired: no user Object
+index-Bq051QD4.js:2 Clearing auth state...
+index-Bq051QD4.js:2 Logout complete
+index-Bq051QD4.js:2 onAuthStateChanged fired: user exists Object
+index-Bq051QD4.js:2 Setting user, refreshing token...
+index-Bq051QD4.js:2 Refreshing token and claims...
+index-Bq051QD4.js:2 Decoded claims: Object
+index-Bq051QD4.js:2 Claims set successfully: Object
+index-Bq051QD4.js:2 State update complete, claims should be available
+index-Bq051QD4.js:2 Token refresh result: true
+index-Bq051QD4.js:2 Auth setup complete
+VoiceDashboardPage-CaTeV16v.js:42 📞 Sample call data: Object
+VoiceDashboardPage-CaTeV16v.js:42 📅 Time filters: Object
+installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+overrideMethod @ installHook.js:1Understand this warning
+index-Bq051QD4.js:2 onAuthStateChanged fired: no user Object
+index-Bq051QD4.js:2 Clearing auth state...
+index-Bq051QD4.js:2 Logout complete
+index-Bq051QD4.js:2 onAuthStateChanged fired: user exists Object
+index-Bq051QD4.js:2 Setting user, refreshing token...
+index-Bq051QD4.js:2 Refreshing token and claims...
+index-Bq051QD4.js:2 Decoded claims: Object
+index-Bq051QD4.js:2 Claims set successfully: Object
+index-Bq051QD4.js:2 State update complete, claims should be available
+index-Bq051QD4.js:2 Token refresh result: true
+index-Bq051QD4.js:2 Auth setup complete
+DashboardPage-bW_KZAQM.js:1 Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec.Understand this error
+installHook.js:1 TypeError: Cannot read properties of undefined (reading 'default')
+    at uf (react-vendor-COdRva8O.js:9:3572)
+    at Lc (react-vendor-COdRva8O.js:40:44182)
+    at Pc (react-vendor-COdRva8O.js:40:39513)
+    at up (react-vendor-COdRva8O.js:40:39444)
+    at al (react-vendor-COdRva8O.js:40:39302)
+    at Zi (react-vendor-COdRva8O.js:40:35719)
+    at Ec (react-vendor-COdRva8O.js:40:34675)
+    at E (react-vendor-COdRva8O.js:25:1562)
+    at MessagePort.vn (react-vendor-COdRva8O.js:25:1930)
+overrideMethod @ installHook.js:1Understand this error
+installHook.js:1 ErrorBoundary caught an error: TypeError: Cannot read properties of undefined (reading 'default')
+    at uf (react-vendor-COdRva8O.js:9:3572)
+    at Lc (react-vendor-COdRva8O.js:40:44182)
+    at Pc (react-vendor-COdRva8O.js:40:39513)
+    at up (react-vendor-COdRva8O.js:40:39444)
+    at al (react-vendor-COdRva8O.js:40:39302)
+    at Zi (react-vendor-COdRva8O.js:40:35719)
+    at Ec (react-vendor-COdRva8O.js:40:34675)
+    at E (react-vendor-COdRva8O.js:25:1562)
+    at MessagePort.vn (react-vendor-COdRva8O.js:25:1930) Object

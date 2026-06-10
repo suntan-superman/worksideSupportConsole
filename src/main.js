@@ -126,6 +126,7 @@ const ESCALATION_REASONS = [
   "manual",
 ];
 const FALLBACK_PRODUCTS = [
+  { id: "radiusiq", label: "RadiusIQ" },
   { id: "merxus", label: "Merxus AI" },
   { id: "home_advisor", label: "Workside Home Advisor" },
   { id: "workside_logistics", label: "Workside Logistics" },
@@ -234,6 +235,7 @@ function persistFilters() {
 
 function productLabelFromKey(value) {
   const key = String(value ?? "").trim().toLowerCase();
+  if (key === "radiusiq" || key === "radius_iq") return "RadiusIQ";
   if (key === "merxus") return "Merxus AI";
   if (key === "home_advisor") return "Home Advisor";
   if (key === "workside_logistics") return "Workside Logistics";

@@ -1,7 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { initializeApp } from "firebase/app";
+import { FirebaseError, getApp, getApps, initializeApp } from "firebase/app";
 import {
   deleteUser,
+  getAuth,
   initializeAuth,
   onAuthStateChanged,
   signInWithCustomToken,
@@ -11,16 +12,50 @@ import {
 } from "firebase/auth";
 import * as firebaseAuth from "firebase/auth";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { firebaseConfig } from "@/services/config";
+import { assertFirebaseConfig, firebaseConfig, getFirebaseConfigDiagnostics } from "@/services/config";
 import { setAuthTokenGetter } from "@/services/apiClient";
 import { sendLoginOtp, verifyLoginOtp } from "@/services/authApi";
 
-const app = initializeApp(firebaseConfig);
+assertFirebaseConfig();
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const getReactNativePersistence = (firebaseAuth as any).getReactNativePersistence;
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence ? getReactNativePersistence(AsyncStorage) : undefined
-});
+const auth = (() => {
+  try {
+    return initializeAuth(app, {
+      persistence: getReactNativePersistence ? getReactNativePersistence(AsyncStorage) : undefined
+    });
+  } catch (error: any) {
+    if (error?.code === "auth/already-initialized") {
+      return getAuth(app);
+    }
+    throw error;
+  }
+})();
 const REMEMBER_EMAIL_KEY = "support_mobile_remember_email";
+
+function toAuthError(error: unknown, action: string) {
+  const firebaseError = error as FirebaseError & { details?: unknown };
+  const code = firebaseError?.code || "unknown";
+  const message = firebaseError?.message || "Unable to sign in.";
+  const diagnostics = getFirebaseConfigDiagnostics();
+
+  console.error(`[mobile-auth] ${action} failed`, {
+    code,
+    message,
+    diagnostics
+  });
+
+  const friendly = new Error(
+    `${message}\n\nCode: ${code}\nFirebase project: ${diagnostics.projectId}\nAuth domain: ${diagnostics.authDomain}\nApp ID suffix: ${diagnostics.appIdSuffix}`
+  ) as Error & { code?: string; details?: unknown };
+  friendly.code = code;
+  friendly.details = {
+    originalDetails: firebaseError?.details,
+    diagnostics
+  };
+  return friendly;
+}
 
 type AuthContextValue = {
   user: User | null;
@@ -96,14 +131,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: Boolean(user || authToken),
     loading,
     signIn: async (email, password) => {
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      const token = await result.user.getIdToken(true);
-      setAuthToken(token);
-      setAuthEmail(result.user.email || email.trim());
-      await AsyncStorage.multiSet([
-        ["support_auth_token", token],
-        ["support_user_email", result.user.email || email.trim()]
-      ]);
+      try {
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        const token = await result.user.getIdToken(true);
+        setAuthToken(token);
+        setAuthEmail(result.user.email || email.trim());
+        await AsyncStorage.multiSet([
+          ["support_auth_token", token],
+          ["support_user_email", result.user.email || email.trim()]
+        ]);
+      } catch (error) {
+        throw toAuthError(error, "password sign-in");
+      }
     },
     requestOtp: async (email) => {
       await sendLoginOtp(email);
@@ -122,7 +161,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ["support_auth_token", idToken],
           ["support_user_email", result.user.email || email.trim()]
         ]);
-      } catch {
+      } catch (error) {
+        console.warn("[mobile-auth] custom token sign-in failed; falling back to bearer token", {
+          code: (error as FirebaseError)?.code || "unknown",
+          diagnostics: getFirebaseConfigDiagnostics()
+        });
         setAuthToken(token);
         setAuthEmail(email.trim());
         await AsyncStorage.multiSet([
