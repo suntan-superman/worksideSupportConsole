@@ -106,8 +106,14 @@ export type SupportSession = {
   leadName?: string;
   visitorName?: string;
   leadEmail?: string;
+  leadPhone?: string;
+  leadCompany?: string;
   leadCaptured?: boolean;
+  inquirySummary?: string;
+  inquiryUrgency?: string;
+  inquiryIntent?: string;
   inquiryCaptured?: boolean;
+  supportNotes?: string[];
   transferRequested?: boolean;
   lastMessagePreview?: string;
   createdAt?: string;
@@ -157,8 +163,16 @@ function normalizeSession(raw: AnyRecord): SupportSession {
     leadName: meaningfulText(pickFirst(raw.leadName, raw.contactName, raw.lead?.name, raw.customer?.name, "")),
     visitorName: meaningfulText(pickFirst(raw.visitorName, raw.visitor?.name, raw.metadata?.visitorName, "")),
     leadEmail: meaningfulText(pickFirst(raw.leadEmail, raw.contactEmail, raw.lead?.email, raw.customer?.email, "")),
+    leadPhone: meaningfulText(pickFirst(raw.leadPhone, raw.contactPhone, raw.lead?.phone, raw.customer?.phone, "")),
+    leadCompany: meaningfulText(pickFirst(raw.leadCompany, raw.company, raw.lead?.company, raw.customer?.company, "")),
     leadCaptured: Boolean(pickFirst(raw.leadCaptured, raw.lead?.captured, raw.leadName || raw.leadEmail, false)),
+    inquirySummary: meaningfulText(pickFirst(raw.inquirySummary, raw.inquiry?.messageSummary, raw.inquiry?.summary, raw.support?.inquiry?.latest?.summary, "")),
+    inquiryUrgency: meaningfulText(pickFirst(raw.inquiryUrgency, raw.inquiry?.urgency, raw.support?.inquiry?.latest?.urgency, "medium")) || "medium",
+    inquiryIntent: meaningfulText(pickFirst(raw.inquiryIntent, raw.inquiry?.intent, raw.support?.inquiry?.latest?.intent, "general")) || "general",
     inquiryCaptured: Boolean(pickFirst(raw.inquiryCaptured, raw.inquiry?.captured, raw.inquiry?.messageSummary, false)),
+    supportNotes: asArray<AnyRecord>(pickFirst(raw.supportNotes, raw.notes, raw.support?.notes, []))
+      .map((note) => meaningfulText(pickFirst(note.note, note.text, note.message, note.body, note)))
+      .filter(Boolean),
     transferRequested: isTakeoverReadyState(normalizeTransferState(raw)) || (!normalizeTransferState(raw) && status === "escalated"),
     lastMessagePreview: meaningfulText(pickFirst(raw.lastMessagePreview, raw.preview, raw.lastMessage, raw.lastMessage?.text, raw.lastMessage?.message)),
     createdAt: meaningfulText(pickFirst(raw.createdAt, raw.initialDate, raw.startedAt, "")),
@@ -211,9 +225,13 @@ export function isTakeoverReadyState(value?: string) {
   return state === "transfer_requested" || state === "transfer_initiated";
 }
 
-export async function getSupportSessions(filters: { product?: string } = {}) {
+export async function getSupportSessions(filters: { product?: string; assignedTo?: string; status?: string } = {}) {
   const payload = await apiRequest<AnyRecord>("/support/sessions", {
-    query: { product: filters.product }
+    query: {
+      product: filters.product,
+      assignedTo: filters.assignedTo,
+      status: filters.status
+    }
   });
   return { sessions: sessionListFromPayload(payload) };
 }
@@ -250,6 +268,39 @@ export async function closeSupportSession(sessionId: string, resolutionNote: str
   return apiRequest(`/support/sessions/${sessionId}/close`, {
     method: "POST",
     body: sessionRouteBody(session, { resolutionNote, reason: "closed_by_support" })
+  });
+}
+
+export async function saveLeadForSession(
+  sessionId: string,
+  lead: { name: string; email: string; phone?: string; company?: string },
+  session?: SupportSession | null
+) {
+  return apiRequest(`/support/sessions/${sessionId}/lead`, {
+    method: "PATCH",
+    body: sessionRouteBody(session, {
+      ...lead,
+      leadName: lead.name,
+      leadEmail: lead.email,
+      leadPhone: lead.phone,
+      leadCompany: lead.company
+    })
+  });
+}
+
+export async function saveInquiryForSession(
+  sessionId: string,
+  inquiry: { messageSummary: string; urgency: string; intent: string },
+  session?: SupportSession | null
+) {
+  return apiRequest(`/support/sessions/${sessionId}/inquiry`, {
+    method: "POST",
+    body: sessionRouteBody(session, {
+      ...inquiry,
+      summary: inquiry.messageSummary,
+      message: inquiry.messageSummary,
+      rawUserDescription: inquiry.messageSummary
+    })
   });
 }
 

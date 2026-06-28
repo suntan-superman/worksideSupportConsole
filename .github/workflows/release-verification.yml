@@ -1,0 +1,52 @@
+name: Release Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Verification mode"
+        required: true
+        default: "env-only"
+        type: choice
+        options:
+          - env-only
+          - full-safe
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "release-test.config.js"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TEST_TARGET: production
+      RELEASE_TEST_EMAIL: ${{ secrets.RELEASE_TEST_EMAIL }}
+      RELEASE_TEST_PASSWORD: ${{ secrets.RELEASE_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install Puppeteer browser
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full-safe' }}
+        run: npx puppeteer browsers install chrome
+      - name: Verify release
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "full-safe" ]; then
+            npm run verify:release -- -- --skip auth
+          else
+            npm run verify:release -- -- --only env
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: support-console-release-reports
+          path: reports/SupportConsole
+          if-no-files-found: ignore

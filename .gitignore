@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+reports
+test-results
 *.local
 
 # Editor directories and files
@@ -24,4 +26,7 @@ dist-ssr
 *.sw?
 *.env
 *.env.local
-
+*.keystore
+*.jks
+*.p8
+*.p12

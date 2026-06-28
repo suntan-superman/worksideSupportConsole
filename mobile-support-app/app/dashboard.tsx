@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { AvailabilityToggle } from "@/components/AvailabilityToggle";
+import { AvailabilitySelector } from "@/components/AvailabilitySelector";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { SessionCard } from "@/components/SessionCard";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,8 @@ import { usePolling } from "@/hooks/usePolling";
 import { isUnauthorizedError } from "@/services/apiClient";
 import { getSupportSessions, isHumanActive, isWaitingForTakeover, SupportSession } from "@/services/supportApi";
 import { notifyTransferWaiting, registerForPushNotificationsAsync } from "@/services/notifications";
+import { registerPushToken } from "@/services/pushRegistration";
+import { getSupportProducts, SupportProduct } from "@/services/supportScope";
 
 const FILTERS: { value: QueueFilter; label: string }[] = [
   { value: "open", label: "Open" },
@@ -30,11 +32,17 @@ export default function DashboardScreen() {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [authExpired, setAuthExpired] = useState(false);
+  const [products, setProducts] = useState<SupportProduct[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState("");
   const knownWaitingIdsRef = useRef<Set<string>>(new Set());
 
   async function loadSessions() {
     try {
-      const result = await getSupportSessions({ product: "merxus" });
+      const result = await getSupportSessions({
+        product: selectedProduct || undefined,
+        assignedTo: queueFilter === "mine" ? "me" : undefined,
+        status: queueFilter === "mine" ? "escalated,active_human" : undefined
+      });
       const nextSessions = result.sessions || [];
       const waiting = nextSessions.filter(isWaitingForTakeover);
       const knownWaitingIds = knownWaitingIdsRef.current;
@@ -61,9 +69,19 @@ export default function DashboardScreen() {
   }
 
   useEffect(() => {
-    registerForPushNotificationsAsync().catch(() => {});
+    registerForPushNotificationsAsync()
+      .then((token) => (token ? registerPushToken(token) : ""))
+      .catch(() => {});
+    getSupportProducts()
+      .then((result) => setProducts(result.products || []))
+      .catch(() => setProducts([]));
     loadSessions().catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    loadSessions().catch(() => setLoading(false));
+  }, [queueFilter, selectedProduct]);
 
   usePolling(loadSessions, 5000);
 
@@ -78,8 +96,9 @@ export default function DashboardScreen() {
         if (queueFilter === "waiting") return isWaitingForTakeover(session);
         if (queueFilter === "active") return isHumanActive(session);
         if (queueFilter === "mine") {
+          if (!currentUserKey) return true;
           const owner = `${session.ownerName || ""} ${session.assignedTo || ""}`.toLowerCase();
-          return Boolean(currentUserKey && owner.includes(currentUserKey));
+          return !owner || owner.includes(currentUserKey);
         }
         return session.status !== "closed";
       }),
@@ -123,7 +142,29 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <AvailabilityToggle />
+      <AvailabilitySelector />
+
+      {products.length ? (
+        <View style={styles.productFilters}>
+          <Pressable
+            style={[styles.productChip, !selectedProduct && styles.productChipActive, darkMode && styles.filterChipDark]}
+            onPress={() => setSelectedProduct("")}
+          >
+            <Text style={[styles.filterText, !selectedProduct && styles.filterTextActive]}>All Products</Text>
+          </Pressable>
+          {products.map((product) => (
+            <Pressable
+              key={product.id}
+              style={[styles.productChip, selectedProduct === product.id && styles.productChipActive, darkMode && styles.filterChipDark]}
+              onPress={() => setSelectedProduct(product.id)}
+            >
+              <Text style={[styles.filterText, selectedProduct === product.id && styles.filterTextActive]} numberOfLines={1}>
+                {product.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       <View style={styles.filters}>
         {FILTERS.map((filter) => (
@@ -176,7 +217,10 @@ const styles = StyleSheet.create({
   mutedDark: { color: "#94a3b8" },
   signOut: { color: "#2563eb", fontWeight: "700" },
   filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  productFilters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   filterChip: { borderWidth: 1, borderColor: "#dbe4ef", backgroundColor: "white", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  productChip: { maxWidth: 150, borderWidth: 1, borderColor: "#dbe4ef", backgroundColor: "white", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  productChipActive: { backgroundColor: "#0f766e", borderColor: "#0f766e" },
   filterChipDark: { backgroundColor: "#1e293b", borderColor: "#334155" },
   filterChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
   filterText: { color: "#475569", fontWeight: "800", fontSize: 12 },

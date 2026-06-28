@@ -15,6 +15,13 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { assertFirebaseConfig, firebaseConfig, getFirebaseConfigDiagnostics } from "@/services/config";
 import { setAuthTokenGetter } from "@/services/apiClient";
 import { sendLoginOtp, verifyLoginOtp } from "@/services/authApi";
+import {
+  clearStoredAuthToken,
+  getStoredAuthToken,
+  migrateLegacyAuthToken,
+  setStoredAuthToken
+} from "@/services/secureTokenStorage";
+import { revokeRegisteredPushToken } from "@/services/pushRegistration";
 
 assertFirebaseConfig();
 
@@ -80,13 +87,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setAuthTokenGetter(async () => {
       const current = auth.currentUser;
-      return current ? current.getIdToken() : authToken || (await AsyncStorage.getItem("support_auth_token"));
+      return current ? current.getIdToken() : authToken || (await getStoredAuthToken());
     });
 
     let unsubscribed = false;
-    AsyncStorage.multiGet(["support_auth_token", "support_user_email", REMEMBER_EMAIL_KEY]).then((items) => {
+    Promise.all([
+      migrateLegacyAuthToken(),
+      AsyncStorage.multiGet(["support_user_email", REMEMBER_EMAIL_KEY])
+    ]).then(([storedToken, items]) => {
       if (unsubscribed) return;
-      const storedToken = items.find(([key]) => key === "support_auth_token")?.[1] || "";
       const storedEmail = items.find(([key]) => key === "support_user_email")?.[1] || "";
       const rememberedEmail = items.find(([key]) => key === REMEMBER_EMAIL_KEY)?.[1] || "";
       if (storedToken) setAuthToken(storedToken);
@@ -108,12 +117,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthToken(token);
         if (nextEmail) {
           setAuthEmail(nextEmail);
-          await AsyncStorage.multiSet([
-            ["support_auth_token", token],
-            ["support_user_email", nextEmail]
-          ]);
+          await setStoredAuthToken(token);
+          await AsyncStorage.setItem("support_user_email", nextEmail);
         } else {
-          await AsyncStorage.setItem("support_auth_token", token);
+          await setStoredAuthToken(token);
         }
       }
       setLoading(false);
@@ -136,10 +143,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const token = await result.user.getIdToken(true);
         setAuthToken(token);
         setAuthEmail(result.user.email || email.trim());
-        await AsyncStorage.multiSet([
-          ["support_auth_token", token],
-          ["support_user_email", result.user.email || email.trim()]
-        ]);
+        await setStoredAuthToken(token);
+        await AsyncStorage.setItem("support_user_email", result.user.email || email.trim());
       } catch (error) {
         throw toAuthError(error, "password sign-in");
       }
@@ -157,10 +162,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const idToken = await result.user.getIdToken(true);
         setAuthToken(idToken);
         setAuthEmail(result.user.email || email.trim());
-        await AsyncStorage.multiSet([
-          ["support_auth_token", idToken],
-          ["support_user_email", result.user.email || email.trim()]
-        ]);
+        await setStoredAuthToken(idToken);
+        await AsyncStorage.setItem("support_user_email", result.user.email || email.trim());
       } catch (error) {
         console.warn("[mobile-auth] custom token sign-in failed; falling back to bearer token", {
           code: (error as FirebaseError)?.code || "unknown",
@@ -168,10 +171,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         setAuthToken(token);
         setAuthEmail(email.trim());
-        await AsyncStorage.multiSet([
-          ["support_auth_token", token],
-          ["support_user_email", email.trim()]
-        ]);
+        await setStoredAuthToken(token);
+        await AsyncStorage.setItem("support_user_email", email.trim());
       }
     },
     deleteAccount: async () => {
@@ -182,13 +183,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await deleteUser(current);
       setAuthToken("");
       setAuthEmail("");
-      await AsyncStorage.multiRemove(["support_auth_token", "support_user_email"]);
+      await clearStoredAuthToken();
+      await AsyncStorage.removeItem("support_user_email");
     },
     signOut: async () => {
+      await revokeRegisteredPushToken().catch(() => {});
       await firebaseSignOut(auth);
       setAuthToken("");
       setAuthEmail("");
-      await AsyncStorage.multiRemove(["support_auth_token", "support_user_email"]);
+      await clearStoredAuthToken();
+      await AsyncStorage.removeItem("support_user_email");
     }
   }), [authEmail, authToken, user, loading]);
 

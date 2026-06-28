@@ -20,7 +20,7 @@
       "package": "com.worksidesoftware.support",
       "versionCode": 1
     },
-    "plugins": ["expo-router", "expo-notifications"],
+    "plugins": ["expo-router", "expo-notifications", "expo-secure-store"],
     "extra": {
       "apiBaseUrl": "https://api.merxus.ai",
       "eas": {

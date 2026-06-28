@@ -14,27 +14,27 @@
     "test:e2e:live:qa": "playwright test --config=playwright.qa.config.js",
     "mobile:start": "npm --prefix mobile-support-app run start",
     "mobile:typecheck": "npm --prefix mobile-support-app run typecheck",
+    "audit:prod": "npm audit --omit=dev",
+    "mobile:audit:prod": "npm --prefix mobile-support-app audit --omit=dev",
     "load:public-chat": "node scripts/run-k6.js load-tests/public-chat-load.js",
     "load:support-api": "node scripts/run-k6.js load-tests/support-api-load.js",
     "load:support-multi-user": "node scripts/run-k6.js load-tests/support-multi-user.js",
     "cleanup:chat-sessions": "node scripts/purge-chat-sessions-before.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:release": "node ./scripts/verify-release.js",
+    "verify:release:local": "node ./scripts/verify-release.js --target local",
+    "verify:release:prod": "node ./scripts/verify-release.js --target production",
+    "test:puppeteer": "node ./scripts/verify-release.js --only routes",
+    "test:meta": "node ./scripts/verify-release.js --only meta"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
-    "vitest": "^4.0.15",
-    "vite": "^8.0.10"
+    "puppeteer": "^25.2.1",
+    "vite": "^8.0.10",
+    "vitest": "^4.0.15"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.100.5",
-    "autoprefixer": "^10.5.0",
-    "axios": "^1.15.2",
-    "clsx": "^2.1.1",
-    "dayjs": "^1.11.20",
     "firebase": "^12.12.1",
-    "firebase-admin": "^13.6.0",
-    "postcss": "^8.5.12",
-    "react-router-dom": "^7.14.2",
-    "tailwindcss": "^4.2.4"
+    "firebase-admin": "^14.1.0"
   }
 }

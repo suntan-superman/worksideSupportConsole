@@ -1,6 +1,9 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { InquiryCaptureForm } from "@/components/InquiryCaptureForm";
+import { InternalNotes } from "@/components/InternalNotes";
+import { LeadCaptureForm } from "@/components/LeadCaptureForm";
 import { MessageBubble } from "@/components/MessageBubble";
 import { useAuth } from "@/context/AuthContext";
 import { usePreferences } from "@/context/PreferencesContext";
@@ -13,10 +16,13 @@ import {
   isWaitingForTakeover,
   replyToSupportSession,
   requestTransfer,
+  saveInquiryForSession,
+  saveLeadForSession,
   SupportMessage,
   SupportSession,
   takeoverSupportSession
 } from "@/services/supportApi";
+import { saveInternalNote } from "@/services/notes";
 
 export default function SessionScreen() {
   const router = useRouter();
@@ -116,6 +122,45 @@ export default function SessionScreen() {
     }
   }
 
+  async function handleSaveNote(note: string) {
+    if (!id || busy) return;
+    setBusy(true);
+    try {
+      await saveInternalNote(id, note, session);
+      await loadDetail();
+    } catch (error: any) {
+      Alert.alert("Note not saved", error?.message || "Unable to save this internal note.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveLead(value: { name: string; email: string; phone: string; company: string }) {
+    if (!id || busy) return;
+    setBusy(true);
+    try {
+      await saveLeadForSession(id, value, session);
+      await loadDetail();
+    } catch (error: any) {
+      Alert.alert("Lead not saved", error?.message || "Unable to save lead details.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveInquiry(value: { messageSummary: string; urgency: string; intent: string }) {
+    if (!id || busy) return;
+    setBusy(true);
+    try {
+      await saveInquiryForSession(id, value, session);
+      await loadDetail();
+    } catch (error: any) {
+      Alert.alert("Inquiry not saved", error?.message || "Unable to save inquiry details.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const waiting = isWaitingForTakeover(session);
   const humanActive = isHumanActive(session);
   const canReply = humanActive && session?.status !== "closed";
@@ -152,6 +197,30 @@ export default function SessionScreen() {
         contentContainerStyle={styles.messages}
         ListEmptyComponent={<Text style={[styles.empty, darkMode && styles.mutedDark]}>No readable messages yet.</Text>}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+        ListFooterComponent={
+          <View>
+            <LeadCaptureForm
+              value={{
+                name: session?.leadName || "",
+                email: session?.leadEmail || "",
+                phone: session?.leadPhone || "",
+                company: session?.leadCompany || ""
+              }}
+              busy={busy}
+              onSave={handleSaveLead}
+            />
+            <InquiryCaptureForm
+              value={{
+                messageSummary: session?.inquirySummary || "",
+                urgency: session?.inquiryUrgency || "medium",
+                intent: session?.inquiryIntent || "general"
+              }}
+              busy={busy}
+              onSave={handleSaveInquiry}
+            />
+            <InternalNotes notes={session?.supportNotes || []} busy={busy} onSave={handleSaveNote} />
+          </View>
+        }
       />
 
       <View style={[styles.composer, darkMode && styles.composerDark]}>

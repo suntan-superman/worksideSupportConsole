@@ -12,6 +12,7 @@ import {
   renderRoutingNotificationsPanel as renderRoutingNotificationsMarkup,
   renderSessionOperationsSummary as renderSessionOperationsSummaryMarkup,
 } from "./render/routingNotifications";
+import { renderProductHealthDashboard } from "./render/productHealthDashboard";
 import {
   buildInactivityWarning,
   defaultInactivityWarning,
@@ -64,6 +65,7 @@ import {
   signOutAllAuth,
   verifyLoginOtp,
 } from "./services/auth";
+import { listProductHealth } from "./services/productHealth";
 
 const AGENT_STORAGE_KEY = "workside_support_agent";
 const SELECTED_SESSION_KEY = "workside_selected_session";
@@ -325,6 +327,8 @@ const storedAdminNotificationMute = readStoredAdminNotificationMute();
 const state = {
   supportFilters: storedFilters,
   productOptions: [],
+  productHealth: [],
+  productHealthError: "",
   tenantOptions: [],
   supportUsers: [],
   availability: {
@@ -1730,6 +1734,7 @@ async function completeAuthenticatedStartup() {
     }, 1000);
   }
   await loadFilterOptions({ silent: true });
+  await loadProductHealth({ silent: true });
   await loadSupportUserOptions({ silent: true });
   await loadMyAvailability({ silent: true });
   render();
@@ -2906,6 +2911,19 @@ async function loadFilterOptions({ silent = false } = {}) {
   }
 
   persistFilters();
+}
+
+async function loadProductHealth({ silent = false } = {}) {
+  if (!state.isAuthenticated) return;
+  try {
+    state.productHealth = await listProductHealth();
+    state.productHealthError = "";
+  } catch (error) {
+    state.productHealthError = "Product health could not be loaded.";
+    if (!silent) {
+      await handleChatApiError("Load product health", error);
+    }
+  }
 }
 
 async function loadMyAvailability({ silent = false } = {}) {
@@ -5588,6 +5606,8 @@ function render() {
 
       ${renderActiveConversationsTray()}
 
+      ${renderProductHealthDashboard({ products: state.productHealth, escapeHtml })}
+
       <main class="layout">
         <aside class="sessions-panel">
           <div class="sessions-header">
@@ -6012,6 +6032,7 @@ function bindEvents() {
   const refreshButton = document.querySelector("#refresh-button");
   if (refreshButton) {
     refreshButton.addEventListener("click", async () => {
+      await loadProductHealth({ silent: true });
       await loadSessions();
       await loadSelectedSession();
     });
