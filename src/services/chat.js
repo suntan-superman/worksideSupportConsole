@@ -988,12 +988,18 @@ function normalizeSessionAndMessages(payload) {
   const actionsRaw = pickFirst(root.actions, root.data?.actions, sessionRaw?.actions, sessionRaw?.supportActions, []);
 
   const session = normalizeSession(sessionRaw);
-  const messages = [
+  const normalizedMessages = [
     ...(Array.isArray(messagesRaw) ? messagesRaw : []).map((item) =>
       normalizeMessage(item, session.tenantId, session.id),
     ),
     ...normalizeActionMessages(actionsRaw, session.tenantId, session.id),
   ].filter(Boolean);
+
+  const messageById = new Map();
+  normalizedMessages.forEach((message) => {
+    if (!messageById.has(String(message.id))) messageById.set(String(message.id), message);
+  });
+  const messages = [...messageById.values()];
 
   messages.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 

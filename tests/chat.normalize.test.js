@@ -135,6 +135,34 @@ describe("support chat normalization", () => {
     ]);
   });
 
+  it("does not duplicate a support action exposed in both messages and session actions", () => {
+    const reply = {
+      id: "reply-action-1",
+      type: "reply",
+      sender: "agent",
+      body: "I am here to help",
+      createdAt: "2026-11-17T19:30:00.000Z",
+    };
+    const { messages } = normalizeSessionAndMessages({
+      session: { id: "s1", tenantId: "tenantA", product: "route-logistics", actions: [reply] },
+      messages: [reply],
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ id: "reply-action-1", sender: "agent", body: "I am here to help" });
+  });
+
+  it("preserves legitimate repeated replies when their action IDs differ", () => {
+    const first = { id: "reply-action-1", type: "reply", sender: "agent", body: "I am here to help" };
+    const second = { id: "reply-action-2", type: "reply", sender: "agent", body: "I am here to help" };
+    const { messages } = normalizeSessionAndMessages({
+      session: { id: "s1", tenantId: "tenantA", product: "route-logistics", actions: [first, second] },
+      messages: [first, second],
+    });
+
+    expect(messages).toHaveLength(2);
+  });
+
   it("normalizes availability effective status from backend routing model", () => {
     expect(
       normalizeAvailability({
