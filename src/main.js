@@ -132,6 +132,7 @@ const FALLBACK_PRODUCTS = [
   { id: "merxus", label: "Merxus AI" },
   { id: "home_advisor", label: "Workside Home Advisor" },
   { id: "workside_logistics", label: "Workside Logistics" },
+  { id: "route-logistics", label: "Route Logistics" },
 ];
 const ACCESS_DENIED_CODES = new Set([
   "PRODUCT_ACCESS_DENIED",
@@ -241,6 +242,7 @@ function productLabelFromKey(value) {
   if (key === "merxus") return "Merxus AI";
   if (key === "home_advisor") return "Home Advisor";
   if (key === "workside_logistics") return "Workside Logistics";
+  if (key === "route-logistics") return "Route Logistics";
   if (!key) return "Unknown Product";
   return key.replace(/_/g, " ");
 }

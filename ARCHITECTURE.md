@@ -1,7 +1,7 @@
 # Workside Support Console Architecture
 
 ## Purpose
-The Workside Support Console is the internal operations layer for conversations across Merxus AI, Workside Home Advisor, Workside Logistics, and future Workside products. It lets authenticated Workside staff monitor sessions, accept human transfers, reply, capture lead/inquiry data, and close sessions.
+The Workside Support Console is the internal operations layer for conversations across Merxus AI, Route Logistics, Workside Home Advisor, Workside Logistics, and future Workside products. It lets authenticated Workside staff monitor sessions, accept human transfers, reply, capture lead/inquiry data, and close sessions.
 
 ## Frontend
 - Runtime: Vite web app.
@@ -21,6 +21,8 @@ Expected backend responsibilities:
 - Enforce lead capture, inquiry capture, takeover/reply rules, and close rules server-side.
 - Return structured errors with `code`, `requiredAction`, `missingFields`, and `sessionId` when applicable.
 - Write audit logs for protected actions and blocked enforcement attempts.
+
+Route Logistics uses product key `route-logistics`. Its authenticated application sends only server-verified tenant/user references and explicit user-supplied support content through the existing public conversation/human-transfer contract. Console access to those sessions remains governed by the same allowed-product and allowed-tenant claims as every other product.
 
 ## Data Flow
 1. User signs in through Firebase or supplies an integration token.

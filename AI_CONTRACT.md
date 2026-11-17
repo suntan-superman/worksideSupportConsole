@@ -48,7 +48,7 @@ type ChatSession = {
   id: string;
   tenantId: string;
   tenantName?: string;
-  product: "merxus" | "home_advisor" | "workside_logistics" | string;
+  product: "merxus" | "route-logistics" | "home_advisor" | "workside_logistics" | string;
   status: "active_ai" | "escalated" | "active_human" | "after_hours_intake" | "closed";
   lead?: {
     name?: string;
@@ -107,3 +107,11 @@ type ChatMessage = {
 - AI must stop auto-replying after human takeover.
 - AI or backend automation may request transfer when confidence is low, the visitor asks for a person, urgency is high, or product-specific rules require human review.
 - AI should capture safe lead and inquiry details only; do not request passwords, card numbers, or sensitive personal data.
+
+## Route Logistics source contract
+
+- Canonical product key: `route-logistics`; display label: `Route Logistics`.
+- Conversations are created by the authenticated Route Logistics server proxy, not by trusting browser-supplied company or role values.
+- Tenant and verified-user references are pseudonymous/scoped references; private customer, job, photo, financial and credential data must not be copied automatically.
+- Repeated human-transfer requests for an already transferred session must be idempotent.
+- Operator replies, assignment, resolution and retention use the existing support session behavior; the Route Logistics widget does not promise immediate real-time operator replies.
