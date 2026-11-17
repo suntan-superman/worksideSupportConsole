@@ -1128,6 +1128,11 @@ export async function listSupportUsers({ product, tenantId, departmentId, admin 
   return normalizeSupportUsers(payload);
 }
 
+export async function getSupportMe() {
+  const payload = await requestSupport("/support/me", { method: "GET" }, "get_support_me");
+  return payload?.user ?? payload?.data?.user ?? null;
+}
+
 export async function listSupportDepartments({ product, tenantId, admin = false } = {}) {
   const payload = await requestSupport(
     admin ? "/support/admin/departments" : "/support/departments",

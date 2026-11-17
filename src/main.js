@@ -31,6 +31,7 @@ import {
   escalateSupportSession,
   getChatEndpointTrace,
   getMyAvailability,
+  getSupportMe,
   getSupportSession,
   isHumanSession,
   isSessionEscalated,
@@ -284,7 +285,7 @@ async function refreshUserRole() {
   try {
     const tokenResult = await currentUser.getIdTokenResult();
     const claims = tokenResult?.claims ?? {};
-    const claimRole = claims.role ?? claims.supportRole ?? claims.userRole ?? "";
+    const claimRole = claims.supportRole ?? claims.userRole ?? claims.role ?? "";
     const normalizedRole = String(claimRole ?? "").trim();
     if (normalizedRole) {
       state.userRole = normalizedRole;
@@ -1372,28 +1373,17 @@ function findCurrentSupportUserRecord(users = []) {
 }
 
 async function verifySupportConsoleAccess() {
-  await refreshUserRole();
-  if (isSuperAdminRole()) {
-    return true;
-  }
-
   try {
-    const users = await listSupportUsers({});
-    const normalizedUsers = mergeSupportUserOptions(users);
-    state.supportUsers = normalizedUsers;
-    const supportUser = findCurrentSupportUserRecord(normalizedUsers);
-    if (supportUser) {
-      if (supportUser.role && !state.userRole) {
-        state.userRole = String(supportUser.role).trim();
-        localStorage.setItem(USER_ROLE_STORAGE_KEY, state.userRole);
-      }
-      return hasSupportConsoleRole();
-    }
+    const supportUser = await getSupportMe();
+    const role = String(supportUser?.role ?? "").trim();
+    if (!supportUser || supportUser.active === false || !role) return false;
+    state.userRole = role;
+    localStorage.setItem(USER_ROLE_STORAGE_KEY, role);
+    return hasSupportConsoleRole();
   } catch {
     // Treat inability to load a support-user authorization record as not authorized.
+    return false;
   }
-
-  return false;
 }
 
 function hasSendableTranscriptMessages(session) {
