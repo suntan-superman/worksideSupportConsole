@@ -31,14 +31,17 @@ Date: 2026-11-17
 - Product Health backend contract tests: 5 passed.
 - Support Console tests: 45 passed across 9 files.
 - Support Console production build: passed.
-- Unauthenticated production requests to the new health and latest-release routes return 401 instead of 404; the existing sessions route also returns 401. This confirms the routes are mounted behind support authentication. No authorized operator token/session was available, so production record contents and CORS behavior were not verified.
-- The Support Console production site is `https://support.worksidesoftware.com` and is served by Netlify. Frontend production deployment remains pending: the tested 19-file release set is staged on `main`, but automatic review rejected its commit.
+- An existing authorized operator login verified `GET /support/products/health` returns 200; the operator's scope returns one Merxus row with `unknown` health. `GET /support/products/merxus/releases/latest` returns the documented `404 RELEASE_NOT_FOUND`. The Route Logistics latest-release request returns `403 FILTER_ACCESS_DENIED` for this Merxus-scoped operator, so that product's release record cannot be inspected under this account. Authenticated browser requests confirmed CORS works.
+- The live Product Health table shows all five catalog entries with `unknown` status, and Route Logistics is present in the support Product filter. The production table does not include the new Data Freshness column, so the current Netlify frontend has not been confirmed to contain the committed release's freshness and feed-error display changes.
+- The Support Console production site is `https://support.worksidesoftware.com` and is served by Netlify. The frontend release was committed and pushed directly to `main` (`3d11a9f66c7a8f64560463375a57b77e00577720`, followed by the smoke-test correction `7a99d10`). Netlify still serves a different bundle from the local production build. No Netlify CLI, site link, deploy hook, or deployment credential is available in this workspace, so a production deployment ID could not be obtained.
+- Local Puppeteer smoke checks confirm all five Product Health rows show Unknown when no records exist, Route Logistics is in the Product filter, and the sessions/detail/heartbeat request path remains wired. No actionable live transfer was available to accept during the operator check; backend transfer regression tests passed.
 
 ## Remaining Unknown values and follow-up
 
 - No authoritative source adapters were found for QA, Meta, Stripe, Auth, Email, or Notifications. The production dashboard must show Unknown until those sources are connected.
 - No release archive source or record store was found. The latest-release endpoint correctly returns a missing-record response.
 - The existing backend checkout contained unrelated uncommitted work before this change. No backend files were committed or pushed; the deployment-only policy was followed.
+- Cloud Run environment metadata was reviewed without printing values. Credential variables are Secret Manager references; the plaintext Twilio account identifier and account-key selectors are not credentials. No secret value was confirmed exposed by the deployment output, so no credential rotation is indicated.
 
 ## Additional review item
 
