@@ -48,8 +48,11 @@ function feedWarning(feedStatus = {}) {
   return messages.join(" ");
 }
 
-export function renderProductHealthDashboard({ products = [], feedStatus = {}, escapeHtml } = {}) {
+export function renderProductHealthDashboard({ products = [], feedStatus = {}, expanded = false, escapeHtml } = {}) {
   const warning = feedWarning(feedStatus);
+  const healthSummary = products.length && products.every((product) => product.status === "unknown")
+    ? "Health data is currently unknown"
+    : "Expand for details";
   const rows = products.length
     ? products
         .map(
@@ -73,30 +76,34 @@ export function renderProductHealthDashboard({ products = [], feedStatus = {}, e
     : `<tr><td colspan="11">No product health records are available.</td></tr>`;
 
   return `
-    <section class="operations-panel">
-      <header class="section-heading">
-        <h2>Product Health</h2>
-      </header>
-      ${warning ? `<div class="banner banner-warning" role="status">${safe(warning, escapeHtml)}</div>` : ""}
-      <div class="admin-table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Status</th>
-              <th>Latest Release</th>
-              <th>Data Freshness</th>
-              <th>QA</th>
-              <th>Meta</th>
-              <th>Stripe</th>
-              <th>Auth</th>
-              <th>Email</th>
-              <th>Notifications</th>
-              <th>Report</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+    <section id="product-health-panel" class="operations-panel product-health-panel">
+      <button id="product-health-toggle" type="button" class="product-health-summary" aria-expanded="${expanded}" aria-controls="product-health-content">
+        <strong>Product Health</strong>
+        <span>${safe(healthSummary, escapeHtml)}</span>
+        <span class="product-health-toggle-icon" aria-hidden="true">${expanded ? "−" : "＋"}</span>
+      </button>
+      <div id="product-health-content" class="product-health-content" ${expanded ? "" : "hidden"}>
+        ${warning ? `<div class="banner banner-warning" role="status">${safe(warning, escapeHtml)}</div>` : ""}
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Status</th>
+                <th>Latest Release</th>
+                <th>Data Freshness</th>
+                <th>QA</th>
+                <th>Meta</th>
+                <th>Stripe</th>
+                <th>Auth</th>
+                <th>Email</th>
+                <th>Notifications</th>
+                <th>Report</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>
     </section>
   `;

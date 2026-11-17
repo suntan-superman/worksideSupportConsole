@@ -39,6 +39,17 @@ describe("operational platform render helpers", () => {
     expect(html).toContain("Data Freshness");
   });
 
+  it("renders Product Health with an explicit accessible collapse control", () => {
+    const collapsed = renderProductHealthDashboard({ escapeHtml, products: [] });
+    expect(collapsed).toContain('id="product-health-toggle"');
+    expect(collapsed).toContain('aria-expanded="false"');
+    expect(collapsed).toContain('id="product-health-content" class="product-health-content" hidden');
+
+    const expanded = renderProductHealthDashboard({ escapeHtml, products: [], expanded: true });
+    expect(expanded).toContain('aria-expanded="true"');
+    expect(expanded).toContain('id="product-health-content" class="product-health-content" >');
+  });
+
   it("warns when health is unavailable and rejects unsafe report links", () => {
     const html = renderProductHealthDashboard({
       escapeHtml,

@@ -2064,6 +2064,58 @@ body.theme-dark {
   font-size: 1rem;
 }
 
+.product-health-panel {
+  padding: 0;
+}
+
+.product-health-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.product-health-summary strong {
+  font-size: 1rem;
+}
+
+.product-health-summary > span:first-of-type {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.product-health-toggle-icon {
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.product-health-summary:focus-visible {
+  outline: 2px solid var(--accent, #1769d2);
+  outline-offset: -3px;
+  border-radius: 8px;
+}
+
+.product-health-content {
+  padding: 0 14px 14px;
+}
+
+.product-health-content[hidden] {
+  display: none;
+}
+
+.product-health-content .banner {
+  margin-bottom: 8px;
+}
+
 .release-archive-header {
   display: flex;
   align-items: flex-start;

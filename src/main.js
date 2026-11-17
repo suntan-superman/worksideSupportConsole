@@ -337,6 +337,7 @@ const state = {
   supportFilters: storedFilters,
   productOptions: [],
   productHealth: [],
+  productHealthExpanded: false,
   productHealthError: "",
   productHealthFeed: {
     state: "loading",
@@ -5759,7 +5760,12 @@ function render() {
 
       ${renderActiveConversationsTray()}
 
-      ${renderProductHealthDashboard({ products: state.productHealth, feedStatus: state.productHealthFeed, escapeHtml })}
+      ${renderProductHealthDashboard({
+        products: state.productHealth,
+        feedStatus: state.productHealthFeed,
+        expanded: state.productHealthExpanded,
+        escapeHtml,
+      })}
 
       ${renderReleaseArchivePanel()}
 
@@ -5818,6 +5824,14 @@ function render() {
 }
 
 function bindEvents() {
+  const productHealthToggle = document.querySelector("#product-health-toggle");
+  if (productHealthToggle) {
+    productHealthToggle.addEventListener("click", () => {
+      state.productHealthExpanded = !state.productHealthExpanded;
+      render();
+    });
+  }
+
   const confirmDialogCancelButton = document.querySelector("#confirm-dialog-cancel");
   if (confirmDialogCancelButton) {
     confirmDialogCancelButton.addEventListener("click", () => {
