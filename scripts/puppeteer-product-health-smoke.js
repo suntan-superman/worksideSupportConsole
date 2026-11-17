@@ -71,67 +71,29 @@ async function installApiMocks(page) {
     if (path === "/support/products/health") {
       request.respond(
         json({
-          items: [
-            {
-              id: "merxus",
-              label: "Merxus AI",
-              status: "healthy",
-              latestRelease: "2026.06.28",
-              readinessScore: 94,
-              qa: "healthy",
-              meta: "unknown",
-              stripe: "healthy",
-              auth: "healthy",
-              email: "healthy",
-              notifications: "warning",
-              updatedAt: now,
-            },
-          ],
+          items: [],
         }),
       );
       return;
     }
 
-    if (path === "/support/products/merxus/releases/latest") {
-      request.respond(
-        json({
-          release: {
-            id: "2026-06-28",
-            product: "merxus",
-            version: "2026.06.28",
-            readinessScore: 94,
-            recommendation: "deploy",
-            status: "passed",
-          },
-        }),
-      );
-      return;
-    }
-
-    if (path === "/support/products/merxus/releases") {
-      request.respond(
-        json({
-          releases: [
-            {
-              id: "2026-06-28",
-              product: "merxus",
-              version: "2026.06.28",
-              date: "2026-06-28",
-              readinessScore: 94,
-              recommendation: "deploy",
-              status: "passed",
-              htmlUrl: "/reports/merxus/2026-06-28.html",
-              jsonUrl: "/reports/merxus/2026-06-28.json",
-              pdfUrl: "/reports/merxus/2026-06-28.pdf",
-            },
-          ],
-        }),
-      );
+    if (/^\/support\/products\/[^/]+\/releases\/latest$/.test(path)) {
+      request.respond({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "RELEASE_NOT_FOUND" } }),
+      });
       return;
     }
 
     if (path === "/support/products") {
-      request.respond(json({ products: [{ id: "merxus", label: "Merxus AI" }] }));
+      request.respond(json({ products: [
+        { id: "sageset", label: "SageSet" },
+        { id: "merxus", label: "Merxus AI" },
+        { id: "radiusiq", label: "RadiusIQ" },
+        { id: "route-logistics", label: "Route Logistics" },
+        { id: "support-console", label: "Workside Support Console" },
+      ] }));
       return;
     }
 
@@ -266,20 +228,33 @@ async function main() {
 
     await page.goto(BASE_URL, { waitUntil: "networkidle2", timeout: 60_000 });
     await page.waitForSelector(".operations-panel", { timeout: 30_000 });
-    try {
-      await page.waitForFunction(() => document.body.innerText.includes("2026.06.28"), { timeout: 30_000 });
-    } catch (error) {
-      const bodyText = await page.evaluate(() => document.body.innerText);
-      const supportPaths = page.__supportPaths || [];
-      throw new Error(
-        `${error.message}\nSupport requests: ${supportPaths.join(", ") || "none"}\nBody:\n${bodyText.slice(0, 2000)}`,
-      );
-    }
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Product Health") && document.body.innerText.includes("Route Logistics"),
+      { timeout: 30_000 },
+    );
     const bodyText = await page.evaluate(() => document.body.innerText);
 
-    for (const expected of ["Product Health", "Release Archive", "2026-06-28", "2026.06.28", "Sessions", "Ada Lovelace"]) {
+    for (const expected of ["Product Health", "Release Archive", "Unknown", "Sessions", "Ada Lovelace"]) {
       if (!bodyText.includes(expected)) {
         throw new Error(`Missing expected text: ${expected}`);
+      }
+    }
+
+    for (const expected of ["SageSet", "Merxus AI", "RadiusIQ", "Route Logistics", "Workside Support Console"]) {
+      if (!bodyText.includes(expected)) {
+        throw new Error(`Missing Product Health catalog entry: ${expected}`);
+      }
+    }
+    if (!(await page.$eval('#support-filter-product option[value="route-logistics"]', (option) => Boolean(option)).catch(() => false))) {
+      throw new Error("Route Logistics is missing from the support Product filter.");
+    }
+    for (const expectedPath of [
+      "/support/products/health",
+      "/support/products/route-logistics/releases/latest",
+      "/support/users/me/heartbeat",
+    ]) {
+      if (!(page.__supportPaths || []).includes(expectedPath)) {
+        throw new Error(`Expected support request was not made: ${expectedPath}`);
       }
     }
 
