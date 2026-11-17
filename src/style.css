@@ -222,7 +222,7 @@ body.theme-dark {
   width: min(1320px, 100%);
   margin: 0 auto;
   padding: 22px 18px 24px;
-  height: 100svh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -533,8 +533,9 @@ body.theme-dark {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 14px;
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
+  height: clamp(480px, 68svh, 760px);
+  min-height: 480px;
 }
 
 .active-conversations-tray {
@@ -2405,6 +2406,7 @@ body.theme-dark .admin-table td {
   .layout {
     grid-template-columns: 1fr;
     flex: none;
+    height: auto;
     min-height: auto;
   }
 

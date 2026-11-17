@@ -234,6 +234,17 @@ async function main() {
     );
     const bodyText = await page.evaluate(() => document.body.innerText);
 
+    const scrollResult = await page.evaluate(async () => {
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      window.scrollTo(0, maxScroll);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { maxScroll, scrollY: window.scrollY };
+    });
+    if (scrollResult.maxScroll < 80 || scrollResult.scrollY < 80) {
+      throw new Error(`Dashboard page did not scroll: ${JSON.stringify(scrollResult)}`);
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+
     for (const expected of ["Product Health", "Release Archive", "Unknown", "Sessions", "Ada Lovelace"]) {
       if (!bodyText.includes(expected)) {
         throw new Error(`Missing expected text: ${expected}`);
