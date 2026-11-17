@@ -1,8 +1,16 @@
-import { listProductHealth } from "./productHealth";
+import { getProductHealth } from "./productHealth";
 import { getLatestRelease } from "./releaseArchive";
 
+function canonicalProductId(value) {
+  const key = String(value ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (key === "merxus-ai") return "merxus";
+  if (key === "radius-iq") return "radiusiq";
+  if (key === "workside-support-console") return "support-console";
+  return key;
+}
+
 export async function getSessionProductDiagnostics(session = {}) {
-  const product = String(session.productKey ?? session.product ?? "").trim();
+  const product = canonicalProductId(session.productKey ?? session.product);
   if (!product) {
     return {
       product: "",
@@ -12,11 +20,15 @@ export async function getSessionProductDiagnostics(session = {}) {
     };
   }
 
-  const [healthItems, latestRelease] = await Promise.all([listProductHealth(), getLatestRelease(product)]);
-  const health = healthItems.find((item) => item.id === product) ?? null;
+  const [healthResult, latestRelease] = await Promise.all([getProductHealth(), getLatestRelease(product)]);
+  const health = healthResult.products.find((item) => item.id === product) ?? null;
   const warnings = [];
 
-  if (!health) warnings.push("No product health record is available.");
+  if (["unauthorized", "not_found", "unavailable", "network_error", "timeout", "malformed"].includes(healthResult.feedState)) {
+    warnings.push(`Product health data is ${healthResult.feedState.replaceAll("_", " ")}.`);
+  } else if (!health || health.recordState === "missing") {
+    warnings.push("No product health record is available.");
+  }
   if (health && health.status !== "healthy") warnings.push(`Product health is ${health.status}.`);
   if (!latestRelease) warnings.push("No release certification record is available.");
 

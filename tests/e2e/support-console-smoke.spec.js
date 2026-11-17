@@ -3,9 +3,70 @@ import { expect, test } from "@playwright/test";
 const now = "2026-05-03T18:00:00.000Z";
 
 test("loads sessions and selects a session detail", async ({ page }) => {
-  await page.route("**/support/products**", (route) =>
-    route.fulfill({
+  await page.route("**/support/products**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path !== "/support/products") {
+      return route.fallback();
+    }
+    return route.fulfill({
       json: { products: [{ id: "merxus", label: "Merxus AI" }] },
+    });
+  });
+  await page.route("**/support/products/health**", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "merxus",
+            label: "Merxus AI",
+            status: "healthy",
+            latestRelease: "2026.06.28",
+            readinessScore: 94,
+            qa: "healthy",
+            meta: "unknown",
+            stripe: "healthy",
+            auth: "healthy",
+            email: "healthy",
+            notifications: "warning",
+            latestReportUrl: "/reports/merxus/latest/release-report.html",
+            updatedAt: now,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/support/products/merxus/releases/latest**", (route) =>
+    route.fulfill({
+      json: {
+        release: {
+          id: "2026-06-28",
+          product: "merxus",
+          version: "2026.06.28",
+          readinessScore: 94,
+          recommendation: "deploy",
+          status: "passed",
+        },
+      },
+    }),
+  );
+  await page.route("**/support/products/merxus/releases**", (route) =>
+    route.fulfill({
+      json: {
+        releases: [
+          {
+            id: "2026-06-28",
+            product: "merxus",
+            version: "2026.06.28",
+            date: "2026-06-28",
+            readinessScore: 94,
+            recommendation: "deploy",
+            status: "passed",
+            htmlUrl: "/reports/merxus/2026-06-28.html",
+            jsonUrl: "/reports/merxus/2026-06-28.json",
+            pdfUrl: "/reports/merxus/2026-06-28.pdf",
+          },
+        ],
+      },
     }),
   );
   await page.route("**/support/tenants**", (route) =>
@@ -104,6 +165,24 @@ test("loads sessions and selects a session detail", async ({ page }) => {
           },
         }),
   );
+  await page.route("**/support/sessions/smoke-1/notifications**", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "n1",
+            sessionId: "smoke-1",
+            product: "merxus",
+            channel: "email",
+            provider: "sendgrid",
+            recipientLabel: "stan@example.com",
+            status: "delivered",
+            attemptedAt: now,
+          },
+        ],
+      },
+    }),
+  );
 
   await page.addInitScript(() => {
     localStorage.setItem("workside_support_auth_token", "smoke-token");
@@ -111,9 +190,17 @@ test("loads sessions and selects a session detail", async ({ page }) => {
   });
 
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Product Health" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Release Archive" })).toBeVisible();
+  await expect(page.getByText("2026-06-28")).toBeVisible();
+  await expect(page.getByText("2026.06.28").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
-  await page.locator('[data-testid="session-row"]').first().click();
+  await page.locator('[data-testid="session-row"]').first().click({ force: true });
   await expect(page.getByRole("heading", { name: /Session smoke-1/ })).toBeVisible();
   await expect(page.getByText("Routing / Notifications")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Product Context" })).toBeVisible();
+  await expect(page.getByRole("main").getByText("Latest Release")).toBeVisible();
   await expect(page.getByText("email to stan@example.com")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Notifications", exact: true })).toBeVisible();
+  await expect(page.getByText("sendgrid | stan@example.com")).toBeVisible();
 });

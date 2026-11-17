@@ -100,12 +100,23 @@ Implemented against:
 - Added release archive service and renderer:
   - `src/services/releaseArchive.js`
   - `src/render/releaseArchiveView.js`
+- Wired release archive records into the web console with product selection and refresh controls.
 - Added session diagnostics service and product context renderer:
   - `src/services/sessionDiagnostics.js`
   - `src/render/sessionProductContext.js`
+- Wired session product/release context into session detail.
 - Added notification receipt service and timeline renderer:
   - `src/services/notifications.js`
   - `src/render/notificationTimeline.js`
+- Wired the dedicated notification receipt timeline into session detail.
+- Added render/unit tests:
+  - `tests/operationalRender.test.js`
+- Synced browser smoke coverage:
+  - `tests/e2e/support-console-smoke.spec.js`
+  - `scripts/puppeteer-product-health-smoke.js`
+- Browser smoke coverage now verifies product health, release archive records, latest release context, and notification receipts.
+- Updated `npm run test:puppeteer` to run release route smoke and product-health Puppeteer smoke.
+- Corrected release route smoke config to the actual SPA route (`/`).
 - Added docs:
   - `docs/product-health-dashboard.md`
   - `docs/release-archive-integration.md`
@@ -129,6 +140,8 @@ Passing:
 - `npm test`
 - `npm run build`
 - `npm run mobile:typecheck`
+- `npx playwright test tests/e2e/support-console-smoke.spec.js`
+- `npm run test:puppeteer`
 
 Audit status after remediation:
 

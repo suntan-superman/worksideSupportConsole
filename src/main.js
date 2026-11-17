@@ -13,6 +13,9 @@ import {
   renderSessionOperationsSummary as renderSessionOperationsSummaryMarkup,
 } from "./render/routingNotifications";
 import { renderProductHealthDashboard } from "./render/productHealthDashboard";
+import { renderNotificationTimeline as renderNotificationTimelineMarkup } from "./render/notificationTimeline";
+import { renderReleaseArchiveView as renderReleaseArchiveViewMarkup } from "./render/releaseArchiveView";
+import { renderSessionProductContext as renderSessionProductContextMarkup } from "./render/sessionProductContext";
 import {
   buildInactivityWarning,
   defaultInactivityWarning,
@@ -65,7 +68,10 @@ import {
   signOutAllAuth,
   verifyLoginOtp,
 } from "./services/auth";
-import { listProductHealth } from "./services/productHealth";
+import { getProductHealth } from "./services/productHealth";
+import { listSessionNotificationReceipts } from "./services/notifications";
+import { listReleaseArchive } from "./services/releaseArchive";
+import { getSessionProductDiagnostics } from "./services/sessionDiagnostics";
 
 const AGENT_STORAGE_KEY = "workside_support_agent";
 const SELECTED_SESSION_KEY = "workside_selected_session";
@@ -331,6 +337,17 @@ const state = {
   productOptions: [],
   productHealth: [],
   productHealthError: "",
+  productHealthFeed: {
+    state: "loading",
+    lastSuccessfulAt: "",
+    missingProducts: [],
+    staleProducts: [],
+    unavailableProducts: [],
+    unknownFreshnessProducts: [],
+  },
+  releaseArchiveProductId: "",
+  releaseArchive: [],
+  releaseArchiveError: "",
   tenantOptions: [],
   supportUsers: [],
   availability: {
@@ -363,6 +380,8 @@ const state = {
   sessions: [],
   selectedSession: null,
   messages: [],
+  notificationReceiptsBySession: {},
+  sessionProductDiagnosticsBySession: {},
   loadingSessions: false,
   loadingSession: false,
   busyAction: false,
@@ -1737,6 +1756,7 @@ async function completeAuthenticatedStartup() {
   }
   await loadFilterOptions({ silent: true });
   await loadProductHealth({ silent: true });
+  await loadReleaseArchive({ silent: true });
   await loadSupportUserOptions({ silent: true });
   await loadMyAvailability({ silent: true });
   render();
@@ -1951,6 +1971,18 @@ async function handleLogout({ reason = "manual" } = {}) {
   localStorage.removeItem(USER_ROLE_STORAGE_KEY);
   state.tenantOptions = [];
   state.productOptions = [];
+  state.productHealth = [];
+  state.productHealthFeed = {
+    state: "loading",
+    lastSuccessfulAt: "",
+    missingProducts: [],
+    staleProducts: [],
+    unavailableProducts: [],
+    unknownFreshnessProducts: [],
+  };
+  state.releaseArchiveProductId = "";
+  state.releaseArchive = [];
+  state.releaseArchiveError = "";
   state.selectedSessionId = "";
   localStorage.removeItem(SELECTED_SESSION_KEY);
 
@@ -2918,12 +2950,63 @@ async function loadFilterOptions({ silent = false } = {}) {
 async function loadProductHealth({ silent = false } = {}) {
   if (!state.isAuthenticated) return;
   try {
-    state.productHealth = await listProductHealth();
-    state.productHealthError = "";
+    const result = await getProductHealth();
+    state.productHealth = result.products;
+    state.productHealthFeed = {
+      state: result.feedState,
+      lastSuccessfulAt: result.lastSuccessfulAt,
+      missingProducts: result.missingProducts,
+      staleProducts: result.staleProducts,
+      unavailableProducts: result.unavailableProducts,
+      unknownFreshnessProducts: result.unknownFreshnessProducts,
+    };
+    state.productHealthError = result.feedState === "available" ? "" : result.feedState;
   } catch (error) {
     state.productHealthError = "Product health could not be loaded.";
+    state.productHealthFeed = { ...state.productHealthFeed, state: "unavailable" };
     if (!silent) {
       await handleChatApiError("Load product health", error);
+    }
+  }
+}
+
+function releaseArchiveProducts() {
+  return mergeProductOptions([
+    ...state.productOptions,
+    ...state.productHealth.map((product) => ({
+      id: product.id,
+      label: product.label || productLabelFromKey(product.id),
+    })),
+  ]);
+}
+
+function selectedReleaseArchiveProductId() {
+  const products = releaseArchiveProducts();
+  const knownProductIds = new Set(products.map((product) => product.id));
+  const preferred =
+    state.releaseArchiveProductId || state.supportFilters.product || state.productHealth[0]?.id || products[0]?.id || "";
+  if (preferred && knownProductIds.has(preferred)) return preferred;
+  return products[0]?.id || preferred;
+}
+
+async function loadReleaseArchive({ silent = false } = {}) {
+  if (!state.isAuthenticated) return;
+  const productId = selectedReleaseArchiveProductId();
+  state.releaseArchiveProductId = productId;
+  if (!productId) {
+    state.releaseArchive = [];
+    state.releaseArchiveError = "Choose a product to load release records.";
+    return;
+  }
+
+  try {
+    state.releaseArchive = await listReleaseArchive(productId);
+    state.releaseArchiveError = "";
+  } catch (error) {
+    state.releaseArchive = [];
+    state.releaseArchiveError = "Release archive could not be loaded.";
+    if (!silent) {
+      await handleChatApiError("Load release archive", error);
     }
   }
 }
@@ -3375,6 +3458,10 @@ async function loadSelectedSession({ silent = false } = {}) {
     state.lastSessionDetailFingerprint = nextFingerprint;
     shouldRender = true;
     applySessionDetail(detail, { preserveExistingMessages: true });
+    await Promise.all([
+      loadSelectedSessionNotificationReceipts({ silent: true }),
+      loadSelectedSessionProductDiagnostics({ silent: true }),
+    ]);
   } catch (error) {
     if (!silent) {
       await handleChatApiError("Load session", error);
@@ -3383,6 +3470,38 @@ async function loadSelectedSession({ silent = false } = {}) {
     state.loadingSession = false;
     if (shouldRender) {
       render();
+    }
+  }
+}
+
+async function loadSelectedSessionProductDiagnostics({ silent = false } = {}) {
+  const session = state.selectedSession;
+  if (!session?.id) return;
+  try {
+    const diagnostics = await getSessionProductDiagnostics(session);
+    state.sessionProductDiagnosticsBySession = {
+      ...state.sessionProductDiagnosticsBySession,
+      [session.id]: diagnostics,
+    };
+  } catch (error) {
+    if (!silent) {
+      await handleChatApiError("Load product context", error);
+    }
+  }
+}
+
+async function loadSelectedSessionNotificationReceipts({ silent = false } = {}) {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId) return;
+  try {
+    const receipts = await listSessionNotificationReceipts(sessionId);
+    state.notificationReceiptsBySession = {
+      ...state.notificationReceiptsBySession,
+      [sessionId]: receipts,
+    };
+  } catch (error) {
+    if (!silent && error?.status !== 404 && error?.status !== 405) {
+      await handleChatApiError("Load notification receipts", error);
     }
   }
 }
@@ -4253,6 +4372,44 @@ function renderRoutingNotificationsPanel(session) {
   });
 }
 
+function renderNotificationTimelinePanel(session) {
+  const receipts = state.notificationReceiptsBySession[session.id]?.length
+    ? state.notificationReceiptsBySession[session.id]
+    : session.notificationTimeline ?? [];
+  return renderNotificationTimelineMarkup({
+    receipts,
+    formatTimestamp,
+    escapeHtml,
+  });
+}
+
+function renderSessionProductContextPanel(session) {
+  const diagnostics =
+    state.sessionProductDiagnosticsBySession[session.id] ??
+    (session.productKey || session.product
+      ? {
+          product: session.productKey || session.product,
+          health: null,
+          latestRelease: null,
+          warnings: ["Product context is loading or unavailable."],
+        }
+      : null);
+  return renderSessionProductContextMarkup({
+    diagnostics,
+    escapeHtml,
+  });
+}
+
+function renderReleaseArchivePanel() {
+  return renderReleaseArchiveViewMarkup({
+    releases: state.releaseArchive,
+    products: releaseArchiveProducts(),
+    selectedProductId: selectedReleaseArchiveProductId(),
+    error: state.releaseArchiveError,
+    escapeHtml,
+  });
+}
+
 function renderLiveTransferPanel({
   session,
   canTakeOver,
@@ -4678,7 +4835,11 @@ function renderDetailPanel() {
 
       ${renderSessionOperationsSummary(session)}
 
+      ${renderSessionProductContextPanel(session)}
+
       ${renderRoutingNotificationsPanel(session)}
+
+      ${renderNotificationTimelinePanel(session)}
 
       <section class="closure-guide" aria-label="Closure options">
         <div class="closure-guide-item">
@@ -5608,7 +5769,9 @@ function render() {
 
       ${renderActiveConversationsTray()}
 
-      ${renderProductHealthDashboard({ products: state.productHealth, escapeHtml })}
+      ${renderProductHealthDashboard({ products: state.productHealth, feedStatus: state.productHealthFeed, escapeHtml })}
+
+      ${renderReleaseArchivePanel()}
 
       <main class="layout">
         <aside class="sessions-panel">
@@ -5871,6 +6034,8 @@ function bindEvents() {
       state.accessDenied = false;
       persistFilters();
       await loadFilterOptions({ silent: true });
+      state.releaseArchiveProductId = "";
+      await loadReleaseArchive({ silent: true });
       await loadSupportUserOptions({ silent: true });
       await loadSessions();
       await loadSelectedSession();
@@ -5929,10 +6094,12 @@ function bindEvents() {
   if (productFilterInput) {
     productFilterInput.addEventListener("change", async (event) => {
       state.supportFilters.product = String(event.target.value ?? "").trim();
+      state.releaseArchiveProductId = state.supportFilters.product;
       state.supportFilters.tenantId = "";
       state.accessDenied = false;
       persistFilters();
       await loadFilterOptions({ silent: true });
+      await loadReleaseArchive({ silent: true });
       await loadSupportUserOptions({ silent: true });
       await loadSessions();
       await loadSelectedSession();
@@ -6035,8 +6202,26 @@ function bindEvents() {
   if (refreshButton) {
     refreshButton.addEventListener("click", async () => {
       await loadProductHealth({ silent: true });
+      await loadReleaseArchive({ silent: true });
       await loadSessions();
       await loadSelectedSession();
+    });
+  }
+
+  const releaseArchiveProductInput = document.querySelector("#release-archive-product");
+  if (releaseArchiveProductInput) {
+    releaseArchiveProductInput.addEventListener("change", async (event) => {
+      state.releaseArchiveProductId = String(event.target.value ?? "").trim();
+      await loadReleaseArchive({ silent: true });
+      render();
+    });
+  }
+
+  const releaseArchiveRefreshButton = document.querySelector("#release-archive-refresh-button");
+  if (releaseArchiveRefreshButton) {
+    releaseArchiveRefreshButton.addEventListener("click", async () => {
+      await loadReleaseArchive({ silent: true });
+      render();
     });
   }
 

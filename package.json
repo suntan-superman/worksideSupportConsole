@@ -7,7 +7,7 @@
     "dev": "vite --open --port 3000",
     "start": "vite --open --port 3000",
     "build": "vite build",
-    "test": "vitest run tests/chat.normalize.test.js tests/filterSummary.test.js tests/sessionListRender.test.js tests/dialogRender.test.js tests/routingNotificationsRender.test.js tests/inactivityState.test.js --pool=threads",
+    "test": "vitest run tests/chat.normalize.test.js tests/filterSummary.test.js tests/sessionListRender.test.js tests/dialogRender.test.js tests/routingNotificationsRender.test.js tests/inactivityState.test.js tests/operationalRender.test.js tests/productHealth.test.js tests/routeLogisticsProduct.test.js --pool=threads",
     "test:e2e": "playwright test",
     "test:e2e:live:support": "playwright test --config=playwright.live.config.js",
     "test:e2e:live:public": "playwright test --config=playwright.public.config.js",
@@ -24,7 +24,9 @@
     "verify:release": "node ./scripts/verify-release.js",
     "verify:release:local": "node ./scripts/verify-release.js --target local",
     "verify:release:prod": "node ./scripts/verify-release.js --target production",
-    "test:puppeteer": "node ./scripts/verify-release.js --only routes",
+    "test:puppeteer:routes": "node ./scripts/verify-release.js --only routes",
+    "test:puppeteer:product-health": "node ./scripts/puppeteer-product-health-smoke.js",
+    "test:puppeteer": "npm run test:puppeteer:routes && npm run test:puppeteer:product-health",
     "test:meta": "node ./scripts/verify-release.js --only meta"
   },
   "devDependencies": {

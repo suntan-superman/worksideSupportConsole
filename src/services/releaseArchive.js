@@ -1,5 +1,8 @@
 import { request } from "./api";
 
+const LATEST_RELEASE_CACHE_MS = 5 * 60 * 1000;
+const latestReleaseCache = new Map();
+
 function normalizeRelease(item = {}) {
   return {
     id: String(item.id ?? item.releaseId ?? item.date ?? item.version ?? ""),
@@ -32,10 +35,19 @@ export async function listReleaseArchive(productId) {
 
 export async function getLatestRelease(productId) {
   if (!productId) return null;
+  const cached = latestReleaseCache.get(productId);
+  if (cached && Date.now() - cached.loadedAt < LATEST_RELEASE_CACHE_MS) {
+    return cached.release;
+  }
   try {
     const payload = await request(`/support/products/${encodeURIComponent(productId)}/releases/latest`, { method: "GET" });
-    return normalizeRelease(payload?.release ?? payload?.data?.release ?? payload?.data ?? payload);
+    const release = normalizeRelease(payload?.release ?? payload?.data?.release ?? payload?.data ?? payload);
+    if (release.version || release.id || release.date) {
+      latestReleaseCache.set(productId, { release, loadedAt: Date.now() });
+    }
+    return release;
   } catch {
+    latestReleaseCache.set(productId, { release: null, loadedAt: Date.now() });
     return null;
   }
 }

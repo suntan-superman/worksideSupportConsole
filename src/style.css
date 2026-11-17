@@ -2063,6 +2063,45 @@ body.theme-dark {
   font-size: 1rem;
 }
 
+.release-archive-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.release-archive-header h2 {
+  margin: 0;
+}
+
+.release-archive-controls {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.release-archive-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.release-archive-controls select {
+  min-width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-transform: none;
+}
+
 .admin-dialog {
   max-width: 560px;
 }

@@ -2,14 +2,43 @@ function safe(value, escapeHtml) {
   return typeof escapeHtml === "function" ? escapeHtml(value) : String(value ?? "");
 }
 
-export function renderReleaseArchiveView({ releases = [], escapeHtml } = {}) {
-  if (!releases.length) {
-    return `<section class="operations-panel"><h2>Release Archive</h2><p>No release archive records are available.</p></section>`;
-  }
+function renderProductOptions({ products = [], selectedProductId = "", escapeHtml } = {}) {
+  if (!products.length) return "";
+  return products
+    .map((product) => {
+      const id = String(product.id ?? "").trim();
+      if (!id) return "";
+      const selected = id === selectedProductId ? "selected" : "";
+      return `<option value="${safe(id, escapeHtml)}" ${selected}>${safe(product.label || id, escapeHtml)}</option>`;
+    })
+    .join("");
+}
 
-  return `
-    <section class="operations-panel">
-      <h2>Release Archive</h2>
+export function renderReleaseArchiveView({
+  releases = [],
+  products = [],
+  selectedProductId = "",
+  error = "",
+  escapeHtml,
+} = {}) {
+  const productOptions = renderProductOptions({ products, selectedProductId, escapeHtml });
+  const controls = productOptions
+    ? `
+      <div class="release-archive-controls">
+        <label>
+          Product
+          <select id="release-archive-product">
+            ${productOptions}
+          </select>
+        </label>
+        <button id="release-archive-refresh-button" class="button button-compact" type="button">Refresh</button>
+      </div>
+    `
+    : "";
+  const errorMarkup = error ? `<p class="validation-note">${safe(error, escapeHtml)}</p>` : "";
+  const body = !releases.length
+    ? `<p>No release archive records are available.</p>`
+    : `
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead>
@@ -36,6 +65,15 @@ export function renderReleaseArchiveView({ releases = [], escapeHtml } = {}) {
           </tbody>
         </table>
       </div>
+    `;
+  return `
+    <section class="operations-panel">
+      <div class="release-archive-header">
+        <h2>Release Archive</h2>
+        ${controls}
+      </div>
+      ${errorMarkup}
+      ${body}
     </section>
   `;
 }

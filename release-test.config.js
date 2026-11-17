@@ -24,7 +24,7 @@ export default {
     links: { enabled: false, blocking: false }
   },
   requiredEnv: [],
-  routes: ["/", "/login"],
+  routes: ["/"],
   meta: {
     enabled: false
   },

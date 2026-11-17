@@ -2,7 +2,54 @@ function safe(value, escapeHtml) {
   return typeof escapeHtml === "function" ? escapeHtml(value) : String(value ?? "");
 }
 
-export function renderProductHealthDashboard({ products = [], escapeHtml } = {}) {
+function safeReportUrl(value) {
+  const url = String(value ?? "").trim();
+  if (!url) return "";
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? url : "";
+  } catch {
+    return "";
+  }
+}
+
+function displayTimestamp(value) {
+  if (!value) return "Unknown";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
+}
+
+function feedWarning(feedStatus = {}) {
+  const lastUpdate = feedStatus.lastSuccessfulAt
+    ? ` Last successful update: ${displayTimestamp(feedStatus.lastSuccessfulAt)}.`
+    : " No successful update in this session.";
+  const messages = [];
+  if (["unauthorized", "not_found", "unavailable", "network_error", "timeout", "malformed"].includes(feedStatus.state)) {
+    const reason = {
+      unauthorized: "You are not authorized to view current product health data.",
+      not_found: "The product health endpoint is unavailable.",
+      malformed: "The product health feed returned an invalid response.",
+    }[feedStatus.state] ?? "Product health data is temporarily unavailable.";
+    messages.push(`${reason}${lastUpdate}`);
+  }
+  if (feedStatus.missingProducts?.length) {
+    messages.push(`No health record is available for: ${feedStatus.missingProducts.join(", ")}.`);
+  }
+  if (feedStatus.staleProducts?.length) {
+    messages.push(`Health data is stale for: ${feedStatus.staleProducts.join(", ")}.`);
+  }
+  if (feedStatus.unavailableProducts?.length) {
+    messages.push(`Health sources are unavailable for: ${feedStatus.unavailableProducts.join(", ")}.`);
+  }
+  if (feedStatus.unknownFreshnessProducts?.length) {
+    messages.push(`Freshness could not be confirmed for: ${feedStatus.unknownFreshnessProducts.join(", ")}.`);
+  }
+  return messages.join(" ");
+}
+
+export function renderProductHealthDashboard({ products = [], feedStatus = {}, escapeHtml } = {}) {
+  const warning = feedWarning(feedStatus);
   const rows = products.length
     ? products
         .map(
@@ -11,24 +58,26 @@ export function renderProductHealthDashboard({ products = [], escapeHtml } = {})
               <td>${safe(product.label, escapeHtml)}</td>
               <td><span class="badge">${safe(product.status, escapeHtml)}</span></td>
               <td>${safe(product.latestRelease || "Unknown", escapeHtml)}</td>
+              <td title="${safe(product.updatedAt || "", escapeHtml)}">${safe(product.freshness || "unknown", escapeHtml)}${product.updatedAt ? ` · ${safe(displayTimestamp(product.updatedAt), escapeHtml)}` : ""}</td>
               <td>${safe(product.qa, escapeHtml)}</td>
               <td>${safe(product.meta, escapeHtml)}</td>
               <td>${safe(product.stripe, escapeHtml)}</td>
               <td>${safe(product.auth, escapeHtml)}</td>
               <td>${safe(product.email, escapeHtml)}</td>
               <td>${safe(product.notifications, escapeHtml)}</td>
-              <td>${product.latestReportUrl ? `<a href="${safe(product.latestReportUrl, escapeHtml)}" target="_blank" rel="noreferrer">Open</a>` : "N/A"}</td>
+              <td>${safeReportUrl(product.latestReportUrl) ? `<a href="${safe(safeReportUrl(product.latestReportUrl), escapeHtml)}" target="_blank" rel="noreferrer">Open</a>` : "N/A"}</td>
             </tr>
           `,
         )
         .join("")
-    : `<tr><td colspan="10">No product health records are available.</td></tr>`;
+    : `<tr><td colspan="11">No product health records are available.</td></tr>`;
 
   return `
     <section class="operations-panel">
       <header class="section-heading">
         <h2>Product Health</h2>
       </header>
+      ${warning ? `<div class="banner banner-warning" role="status">${safe(warning, escapeHtml)}</div>` : ""}
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead>
@@ -36,6 +85,7 @@ export function renderProductHealthDashboard({ products = [], escapeHtml } = {})
               <th>Product</th>
               <th>Status</th>
               <th>Latest Release</th>
+              <th>Data Freshness</th>
               <th>QA</th>
               <th>Meta</th>
               <th>Stripe</th>

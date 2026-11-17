@@ -1071,7 +1071,12 @@ export async function listSupportSessions({
     "list_support_sessions",
   );
 
-  return normalizeSessionList(payload);
+  const sessions = normalizeSessionList(payload);
+  if (!product) return sessions;
+  const normalizedProduct = String(product).trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return sessions.filter(
+    (session) => String(session.productKey ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-") === normalizedProduct,
+  );
 }
 
 export async function listSupportProducts() {
