@@ -70,6 +70,12 @@ import {
   verifyLoginOtp,
 } from "./services/auth";
 import { getProductHealth } from "./services/productHealth";
+import {
+  adminAlertMuteUntil,
+  adminAlertResumeAt,
+  isAdminNotificationMuteActive,
+  shouldPlayConsoleAlert,
+} from "./services/adminNotificationMute";
 import { listSessionNotificationReceipts } from "./services/notifications";
 import { listReleaseArchive } from "./services/releaseArchive";
 import { getSessionProductDiagnostics } from "./services/sessionDiagnostics";
@@ -317,7 +323,7 @@ function readStoredAdminNotificationMute() {
   try {
     const parsed = JSON.parse(localStorage.getItem(ADMIN_NOTIFICATION_MUTE_STORAGE_KEY) ?? "{}");
     const mutedUntil = String(parsed.mutedUntil ?? "").trim();
-    if (!mutedUntil || Number.isNaN(Date.parse(mutedUntil)) || Date.parse(mutedUntil) <= Date.now()) {
+    if (!isAdminNotificationMuteActive(mutedUntil)) {
       localStorage.removeItem(ADMIN_NOTIFICATION_MUTE_STORAGE_KEY);
       return { mutedUntil: "", channel: "all" };
     }
@@ -541,6 +547,14 @@ function unlockNotificationSound() {
   }
 }
 
+function canPlayAdminAlertSound() {
+  syncAdminNotificationMuteState();
+  return shouldPlayConsoleAlert({
+    mutedUntil: state.adminNotificationsMutedUntil,
+    channel: state.adminNotificationsMutedChannel,
+  });
+}
+
 function handleNotificationSoundGesture() {
   unlockNotificationSound();
   if (!state.sessionSoundReady) return;
@@ -549,7 +563,7 @@ function handleNotificationSoundGesture() {
 }
 
 function playNewSessionSound() {
-  if (!state.sessionSoundReady) return;
+  if (!state.sessionSoundReady || !canPlayAdminAlertSound()) return;
   const audioContext = notificationAudioContext;
   if (!audioContext) return;
   try {
@@ -571,7 +585,7 @@ function playNewSessionSound() {
 }
 
 function playTransferQueueAlertSound() {
-  if (!state.sessionSoundReady) return;
+  if (!state.sessionSoundReady || !canPlayAdminAlertSound()) return;
   const audioContext = notificationAudioContext;
   if (!audioContext) return;
   try {
@@ -1011,7 +1025,7 @@ function availabilityDetailText() {
 
 function syncAdminNotificationMuteState() {
   const mutedUntil = String(state.adminNotificationsMutedUntil ?? "").trim();
-  const active = Boolean(mutedUntil && !Number.isNaN(Date.parse(mutedUntil)) && Date.parse(mutedUntil) > Date.now());
+  const active = isAdminNotificationMuteActive(mutedUntil);
   state.adminNotificationsMuted = active;
   if (!active) {
     state.adminNotificationsMutedUntil = "";
@@ -1044,7 +1058,7 @@ function adminNotificationMuteLabel() {
 
 function adminNotificationMuteButtonLabel() {
   syncAdminNotificationMuteState();
-  return state.adminNotificationsMuted ? "Extend Mute" : "Mute Admin Alerts";
+  return state.adminNotificationsMuted ? "Resume Alerts" : "Mute Admin Alerts";
 }
 
 function buildScopeKey({ tenantId, product } = {}) {
@@ -3759,22 +3773,29 @@ async function handleAvailabilityChange(status) {
   }
 }
 
-async function handleMuteAdminNotifications(channel = "all", minutes = 60) {
+async function handleToggleAdminNotifications() {
   if (!isSuperAdminRole() || state.busyAction) return;
+  const resume = syncAdminNotificationMuteState();
+  const channel = "all";
+  const mutedUntil = resume ? adminAlertResumeAt() : adminAlertMuteUntil(60);
   state.busyAction = true;
   render();
   try {
-    const mutedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
     const result = await muteAdminNotifications({
       channel,
       mutedUntil,
-      reason: "Muted from support console",
+      reason: resume ? "Resumed from support console" : "Muted from support console",
     });
     setAdminNotificationMuteState({
       mutedUntil: result?.mute?.mutedUntil || mutedUntil,
       channel: result?.mute?.channel || channel,
     });
-    setBanner("success", `Admin notifications muted until ${formatTimeOnly(state.adminNotificationsMutedUntil)}.`);
+    if (resume) {
+      if (hasWaitingTransfer()) playTransferQueueAlertSound();
+      setBanner("success", "Admin alerts resumed.");
+    } else {
+      setBanner("success", `Admin notifications muted until ${formatTimeOnly(state.adminNotificationsMutedUntil)}.`);
+    }
   } catch (error) {
     await handleChatApiError("Mute admin notifications", error);
   } finally {
@@ -6090,7 +6111,7 @@ function bindEvents() {
   const adminMuteButton = document.querySelector("#admin-mute-button");
   if (adminMuteButton) {
     adminMuteButton.addEventListener("click", async () => {
-      await handleMuteAdminNotifications("all", 60);
+      await handleToggleAdminNotifications();
     });
   }
 
