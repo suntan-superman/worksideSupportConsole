@@ -510,6 +510,7 @@ applyThemePreference();
 let bannerTimer = null;
 let pollingInterval = null;
 let pollingInFlight = false;
+let adminUsersRefreshInFlight = false;
 let availabilityHeartbeatInterval = null;
 let inactivityCheckInterval = null;
 let transferQueueAlertInterval = null;
@@ -859,6 +860,7 @@ async function runPollingCycle() {
       }
     }
     await loadSessions({ silent: true });
+    await refreshAdminUsersForLiveUpdates();
     if (state.selectedSessionId && canUseSelectedSessionRoutes()) {
       await loadSelectedSession({ silent: true });
     }
@@ -876,6 +878,10 @@ async function runAvailabilityHeartbeat() {
       state.availability.effectiveStatus = "available";
       state.availability.assignable = true;
       state.availability.blockedReason = "";
+      updateCurrentUserAvailability({
+        status: state.availability.status,
+        lastSeenAt: result.lastSeenAt,
+      });
     }
     state.lastAvailabilityHeartbeatAt = new Date().toISOString();
     state.availabilityHeartbeatError = "";
@@ -3020,6 +3026,7 @@ async function loadMyAvailability({ silent = false } = {}) {
   if (!state.isAuthenticated || isViewerRole()) return;
   try {
     state.availability = await getMyAvailability();
+    updateCurrentUserAvailability(state.availability);
     state.availabilityHeartbeatError = "";
     syncAvailabilityHeartbeatLoop();
   } catch (error) {
@@ -3098,6 +3105,54 @@ async function loadAdminPanelData() {
     state.adminLoading = false;
     render();
   }
+}
+
+function adminUsersLiveFingerprint(users = []) {
+  return [...users]
+    .map((user) => [
+      user.id,
+      user.active,
+      user.availability?.status,
+      user.availability?.manualOverride,
+      user.availability?.quietUntil,
+      user.availability?.lastSeenAt,
+      user.availability?.updatedAt,
+    ].map((value) => String(value ?? "")).join("~"))
+    .sort()
+    .join("|");
+}
+
+async function refreshAdminUsersForLiveUpdates() {
+  if (!state.adminPanelOpen || !isSuperAdminRole() || state.adminLoading || adminUsersRefreshInFlight) return;
+  adminUsersRefreshInFlight = true;
+  try {
+    const users = await listSupportUsers({ admin: true });
+    if (adminUsersLiveFingerprint(users) === adminUsersLiveFingerprint(state.adminUsers)) return;
+    state.adminUsers = users;
+    state.supportUsers = mergeSupportUserOptions(
+      state.supportUsers,
+      users,
+      supportUsersFromSessions(state.sessions),
+    );
+    syncAgentNameFromAuthenticatedUser(state.supportUsers);
+    render();
+  } catch {
+    // Keep the last successful Admin Users view when a live refresh fails.
+  } finally {
+    adminUsersRefreshInFlight = false;
+  }
+}
+
+function updateCurrentUserAvailability(availability) {
+  const email = currentAuthEmail();
+  if (!email || !availability) return;
+  const update = (users) => users.map((user) =>
+    normalizeComparableEmail(user.email) === email
+      ? { ...user, availability: { ...(user.availability || {}), ...availability } }
+      : user,
+  );
+  state.adminUsers = update(state.adminUsers);
+  state.supportUsers = update(state.supportUsers);
 }
 
 function resetAdminDialog() {
@@ -3761,6 +3816,7 @@ async function handleAvailabilityChange(status) {
       quietUntil: status === "do_not_disturb" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
     });
     state.availability = availability;
+    updateCurrentUserAvailability(availability);
     await loadMyAvailability({ silent: true });
     setBanner("success", `Availability set to ${availabilityLabel(availability.status)}.`);
     syncAvailabilityHeartbeatLoop();
